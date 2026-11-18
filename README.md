@@ -29,6 +29,19 @@ Point it at a loopback ELM327-over-TCP peer. Against fakeobd, that is `serve` wi
 `profiles/volt-lab.profile`. The dialogue is printed to stdout: `>` request, `<` reply line,
 `=` diagnostic bytes when the reply is a hex payload.
 
+The gauge command sends six of those `$22` reads and prints the scaled fields. It dials
+only when `--host` is present, and only when that address is `127.0.0.1`.
+
+```bash
+cargo run -- gauges --host 127.0.0.1:35000
+```
+
+`22002F` uses the scan table's header `7E0`. `228334`, `2243AF`, `2241A3`, `2241A6`, and
+`22434F` use header `7E4`. The printout is the first data byte of `002F` divided by 255,
+the first data byte of `8334` times 100 divided by 255, the big-endian uint16 of `43AF`
+times 100 divided by 65535, the uint16 of `41A3` divided by 10, the uint16 of `41A6`
+divided by 64 in kilometres, and the first data byte of `434F` minus 40 in Celsius.
+
 ```bash
 cargo test
 ```

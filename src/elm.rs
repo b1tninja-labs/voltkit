@@ -4,7 +4,7 @@
 //! `>` prompt. Bytes of value 0 are ignored on the way in.
 
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 /// What a request line is allowed to be.
@@ -49,6 +49,8 @@ pub enum Error {
     Refuse(Refuse),
     /// The address was not a loopback address.
     NotLoopback,
+    /// The gauge host was not `127.0.0.1`.
+    NotGaugeHost,
 }
 
 impl std::fmt::Display for Error {
@@ -57,6 +59,7 @@ impl std::fmt::Display for Error {
             Error::Io(e) => write!(f, "{e}"),
             Error::Refuse(r) => write!(f, "{r}"),
             Error::NotLoopback => write!(f, "address is not loopback"),
+            Error::NotGaugeHost => write!(f, "gauge host must be 127.0.0.1"),
         }
     }
 }
@@ -92,7 +95,22 @@ impl Session {
     /// Returns [`Error::NotLoopback`] when `addr` is not loopback, and [`Error::Io`]
     /// when the connection fails.
     pub fn connect(addr: &str) -> Result<Session, Error> {
-        let sa = loopback(addr)?;
+        Self::dial(loopback(addr)?)
+    }
+
+    /// Connect when `addr` is `127.0.0.1` and a port.
+    ///
+    /// Any other address is refused before a socket is opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotGaugeHost`] when `addr` is not `127.0.0.1`, and [`Error::Io`]
+    /// when the connection fails.
+    pub fn connect_gauge_host(addr: &str) -> Result<Session, Error> {
+        Self::dial(gauge_addr(addr)?)
+    }
+
+    fn dial(sa: SocketAddr) -> Result<Session, Error> {
         let stream = TcpStream::connect_timeout(&sa, Duration::from_secs(3))?;
         stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -145,6 +163,21 @@ fn loopback(addr: &str) -> Result<SocketAddr, Error> {
 
 fn is_loopback(ip: IpAddr) -> bool {
     ip.is_loopback()
+}
+
+/// Resolve `addr` when it is exactly one `127.0.0.1` socket address.
+///
+/// This does not open a connection.
+fn gauge_addr(addr: &str) -> Result<SocketAddr, Error> {
+    let mut iter = addr.to_socket_addrs()?;
+    match iter.next() {
+        Some(sa) if sa.ip() == IpAddr::V4(Ipv4Addr::LOCALHOST) && iter.next().is_none() => Ok(sa),
+        Some(_) => Err(Error::NotGaugeHost),
+        None => Err(Error::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "no address",
+        ))),
+    }
 }
 
 fn read_prompt(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
@@ -301,7 +334,10 @@ mod tests {
         assert_eq!(classify("2701"), Err(Refuse::SecurityAccess));
         assert_eq!(classify("27 01"), Err(Refuse::SecurityAccess));
         assert_eq!(classify("2E1234"), Err(Refuse::NotARead));
+        assert_eq!(classify("2F01"), Err(Refuse::NotARead));
         assert_eq!(classify("3101"), Err(Refuse::NotARead));
+        assert_eq!(classify("AE3B"), Err(Refuse::NotARead));
+        assert_eq!(classify("3B"), Err(Refuse::NotARead));
         assert_eq!(classify(""), Err(Refuse::Empty));
         assert_eq!(classify("ATZ"), Ok(Line::Adapter));
         assert_eq!(classify("at sh 7E0"), Ok(Line::Adapter));
@@ -328,5 +364,19 @@ mod tests {
         assert_eq!(got, vec![1, 2, 3, 4, 5, 6, 7, 8]);
         assert_eq!(payload("ATZ", &["OK".to_string()]), None);
         assert_eq!(payload("1A90", &["NO DATA".to_string()]), None);
+    }
+
+    #[test]
+    fn a_gauge_host_must_be_127_0_0_1() {
+        let ok = gauge_addr("127.0.0.1:35000").unwrap();
+        assert_eq!(ok.ip(), IpAddr::V4(Ipv4Addr::LOCALHOST));
+        assert_eq!(ok.port(), 35000);
+        for host in ["8.8.8.8:35000", "127.0.0.2:9", "[::1]:9"] {
+            assert_eq!(
+                gauge_addr(host).unwrap_err().to_string(),
+                "gauge host must be 127.0.0.1",
+                "{host}"
+            );
+        }
     }
 }

@@ -133,11 +133,16 @@ pub fn scan_table() -> &'static [ScanRow] {
 /// the reply is the diagnostic payload.
 #[must_use]
 pub fn scan_lines() -> Vec<String> {
+    command_lines(scan_table())
+}
+
+/// Adapter and request lines for `rows`, with the same header rules as [`scan_lines`].
+pub(crate) fn command_lines(rows: &[ScanRow]) -> Vec<String> {
     let mut out = Vec::new();
     let mut header = None;
     let mut receive = None;
     let mut headers_on = false;
-    for row in scan_table() {
+    for row in rows {
         if header != Some(row.header) {
             out.push(format!("ATSH{:03X}", row.header));
             header = Some(row.header);
