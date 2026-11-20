@@ -66,9 +66,9 @@ fn gauges_print_the_scaled_fields() {
 002F 0.423529411764
 8334 50.196078431372
 43AF 96.876478217746
-41A3 45
-41A6 64.375 kilometres
-434F 25 Celsius
+41A3 45 86.872586872586 percent
+41A6 64.375 kilometres 40.00077035625 miles
+434F 25 Celsius 77 Fahrenheit
 "
     );
     let got = seen.lock().unwrap().clone();
