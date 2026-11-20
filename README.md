@@ -29,6 +29,18 @@ Point it at a loopback ELM327-over-TCP peer. Against fakeobd, that is `serve` wi
 `profiles/volt-lab.profile`. The dialogue is printed to stdout: `>` request, `<` reply line,
 `=` diagnostic bytes when the reply is a hex payload.
 
+`voltkit profile` reads the identifiers the lab profile answers, plus the charger
+and climate reads traced after it. Point it at the ELM adapter on the vehicle:
+a TCP address, or on Windows a COM port at 115200 baud. It prints each exchange
+and, for a positive reply, a `did` or `lid` line whose hex is the data after the
+service and the identifier. `$27` is still refused. The VCX frame port is not
+this protocol.
+
+```bash
+cargo run -- profile 192.168.0.10:35000
+cargo run -- profile COM5 --baud 115200
+```
+
 The gauge command sends six of those `$22` reads and prints the scaled fields. It dials
 only when `--host` is present, and only when that address is `127.0.0.1`.
 

@@ -81,10 +81,23 @@ pub struct Reply {
     pub lines: Vec<String>,
 }
 
-/// A connected ELM327-over-TCP session.
-#[derive(Debug)]
+/// A connected ELM327 session.
+///
+/// The stream is a TCP socket or, on Windows, a serial adapter.
 pub struct Session {
-    stream: TcpStream,
+    link: Link,
+}
+
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Session")
+    }
+}
+
+enum Link {
+    Tcp(TcpStream),
+    #[cfg(windows)]
+    Serial(Box<dyn serialport::SerialPort>),
 }
 
 impl Session {
@@ -110,11 +123,42 @@ impl Session {
         Self::dial(gauge_addr(addr)?)
     }
 
+    /// Connect to the one address `addr` names.
+    ///
+    /// This is the vehicle capture. The operator passes the adapter's address.
+    /// The session and gauge commands do not use it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when `addr` is not one socket address or the
+    /// connection fails.
+    pub fn connect_host(addr: &str) -> Result<Session, Error> {
+        Self::dial(one_addr(addr)?)
+    }
+
+    /// Open a Windows COM port at `baud`, 8N1.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the port does not open.
+    #[cfg(windows)]
+    pub fn connect_serial(port: &str, baud: u32) -> Result<Session, Error> {
+        let serial = serialport::new(port, baud)
+            .timeout(Duration::from_secs(5))
+            .open()
+            .map_err(|err| Error::Io(io::Error::other(err.to_string())))?;
+        Ok(Session {
+            link: Link::Serial(serial),
+        })
+    }
+
     fn dial(sa: SocketAddr) -> Result<Session, Error> {
         let stream = TcpStream::connect_timeout(&sa, Duration::from_secs(3))?;
         stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-        Ok(Session { stream })
+        Ok(Session {
+            link: Link::Tcp(stream),
+        })
     }
 
     /// How long a read waits for the next byte.
@@ -123,7 +167,11 @@ impl Session {
     ///
     /// Returns the socket error when the timeout cannot be set.
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
-        self.stream.set_read_timeout(timeout)
+        match &self.link {
+            Link::Tcp(stream) => stream.set_read_timeout(timeout),
+            #[cfg(windows)]
+            Link::Serial(_) => Ok(()),
+        }
     }
 
     /// Write `line` and a carriage return, then read until the prompt.
@@ -142,8 +190,8 @@ impl Session {
         let mut buf = Vec::with_capacity(line.len() + 1);
         buf.extend_from_slice(line.as_bytes());
         buf.push(b'\r');
-        self.stream.write_all(&buf)?;
-        let raw = read_prompt(&mut self.stream)?;
+        self.write_all(&buf)?;
+        let raw = self.read_prompt()?;
         let lines = split_reply(&raw);
         Ok(Reply { raw, lines })
     }
@@ -180,24 +228,53 @@ fn gauge_addr(addr: &str) -> Result<SocketAddr, Error> {
     }
 }
 
-fn read_prompt(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut buf = [0u8; 1024];
-    loop {
-        let n = stream.read(&mut buf)?;
-        if n == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "connection closed before the prompt",
-            ));
+fn one_addr(addr: &str) -> Result<SocketAddr, Error> {
+    let mut iter = addr.to_socket_addrs()?;
+    match (iter.next(), iter.next()) {
+        (Some(sa), None) => Ok(sa),
+        (Some(_), Some(_)) => Err(Error::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "address names more than one socket",
+        ))),
+        (None, _) => Err(Error::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "no address",
+        ))),
+    }
+}
+
+impl Session {
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        match &mut self.link {
+            Link::Tcp(stream) => stream.write_all(buf),
+            #[cfg(windows)]
+            Link::Serial(port) => port.write_all(buf),
         }
-        for &b in &buf[..n] {
-            if b == 0 {
-                continue;
+    }
+
+    fn read_prompt(&mut self) -> io::Result<Vec<u8>> {
+        let mut out = Vec::new();
+        let mut buf = [0u8; 1024];
+        loop {
+            let n = match &mut self.link {
+                Link::Tcp(stream) => stream.read(&mut buf)?,
+                #[cfg(windows)]
+                Link::Serial(port) => port.read(&mut buf)?,
+            };
+            if n == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "connection closed before the prompt",
+                ));
             }
-            out.push(b);
-            if b == b'>' {
-                return Ok(out);
+            for &b in &buf[..n] {
+                if b == 0 {
+                    continue;
+                }
+                out.push(b);
+                if b == b'>' {
+                    return Ok(out);
+                }
             }
         }
     }

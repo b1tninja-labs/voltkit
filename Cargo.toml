@@ -6,6 +6,10 @@ license = "MIT OR Apache-2.0"
 publish = false
 description = "ELM327-over-TCP read client for the Voltage Wi-Fi session"
 
+[target.'cfg(windows)'.dependencies]
+# Opens the COM port the operator names for `voltkit profile`. The crate forbids unsafe.
+serialport = "4.7"
+
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

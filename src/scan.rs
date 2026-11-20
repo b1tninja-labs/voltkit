@@ -30,7 +30,7 @@ pub struct ScanRow {
     pub flow_override: bool,
 }
 
-const fn gmlan(header: u16, receive: Option<u16>, id: u8) -> ScanRow {
+pub(crate) const fn gmlan(header: u16, receive: Option<u16>, id: u8) -> ScanRow {
     ScanRow {
         header,
         receive,
@@ -41,7 +41,7 @@ const fn gmlan(header: u16, receive: Option<u16>, id: u8) -> ScanRow {
     }
 }
 
-const fn did(header: u16, receive: Option<u16>, id: u16) -> ScanRow {
+pub(crate) const fn did(header: u16, receive: Option<u16>, id: u16) -> ScanRow {
     ScanRow {
         header,
         receive,
@@ -182,6 +182,117 @@ pub fn session_lines() -> Vec<String> {
         .collect()
 }
 
+/// The trial scan plus every identifier the lab profile answers, and the
+/// charger and climate reads traced after that profile was written.
+///
+/// Headers that begin with `2` set the receive address the profile names
+/// (`641`, `644`, `64C`). `621` stays without one. No row is service `$27`.
+#[must_use]
+pub fn profile_table() -> Vec<ScanRow> {
+    let mut rows = scan_table().to_vec();
+    let mut seen: std::collections::BTreeSet<(u16, u8, u16)> = rows
+        .iter()
+        .map(|row| (row.header, row.service, row.identifier))
+        .collect();
+    let mut add = |row: ScanRow| {
+        if seen.insert((row.header, row.service, row.identifier)) {
+            rows.push(row);
+        }
+    };
+    for id in [
+        0x1C1E_u16, 0x1C38, 0x1C39, 0x1C47, 0x41AD, 0x41C6, 0x43AF, 0x4184, 0x4185, 0x4202, 0x42A0,
+        0x90B1, 0x90F8, 0x90FB, 0x5005, 0x000D, 0x000C, 0x0005,
+    ] {
+        add(did(0x7E0, None, id));
+    }
+    for id in [0x90_u8, 0xDF, 0xB0] {
+        add(gmlan(0x7E0, None, id));
+    }
+    for id in [
+        0x2414_u16, 0x2439, 0x2C05, 0x002C, 0x1154, 0x1940, 0x3040, 0x3041, 0x000D, 0x000C, 0x0005,
+        0x43AF, 0x8334, 0x41A6, 0x24AC, 0x801F, 0x434F, 0x41A4, 0x435A, 0x41B6, 0x439E, 0x0042,
+        0x40D7, 0x40D8, 0x40D9, 0x40DA, 0x40DB, 0x40DC, 0x40DD, 0x40DE, 0x40DF, 0x40E0, 0x40E1,
+        0x4470, 0x41C5, 0x41C6, 0x41AD, 0x432A, 0x432C, 0x4181, 0x4201,
+    ] {
+        add(did(0x7E1, None, id));
+    }
+    for id in [0x90_u8, 0xDF, 0xB0] {
+        add(gmlan(0x7E1, None, id));
+    }
+    for id in [
+        0x41B0_u16, 0x41B7, 0x436F, 0x4372, 0x439B, 0x441E, 0x4425, 0x43CB, 0x43CC, 0x43CD, 0x43CE,
+        0x43CF, 0x452D, 0x452E, 0x4531, 0x4532, 0x452F, 0x4530, 0x4533, 0x4545, 0x4546, 0x8375,
+        0x8377, 0x4210, 0x4211, 0x4212, 0x41DA, 0x432A, 0x432C, 0x436B, 0x436C,
+    ] {
+        add(did(0x7E4, None, id));
+    }
+    for id in [0xDF_u8, 0xB0, 0xA4, 0x75] {
+        add(gmlan(0x7E4, None, id));
+    }
+    for id in [0x83E1_u16, 0x4368, 0x8000] {
+        add(did(0x244, Some(0x644), id));
+    }
+    for id in [
+        0x5005_u16, 0x5006, 0x5007, 0x5008, 0x900D, 0x9025, 0x9037, 0x90B1, 0x90F8, 0x90FB, 0x801F,
+        0x82B2, 0x817B, 0x41B4, 0x41B2, 0x82B5, 0x451E,
+    ] {
+        add(did(0x241, Some(0x641), id));
+    }
+    for id in [0x99_u8, 0xCC, 0xB0, 0x6F, 0x6D] {
+        add(gmlan(0x241, Some(0x641), id));
+    }
+    for id in [0x90_u8, 0x99, 0xCC, 0xDF, 0xB0, 0x6F, 0x6D] {
+        add(gmlan(0x24C, Some(0x64C), id));
+    }
+    for id in 0x4182_u16..=0x4240 {
+        add(did(0x7E7, None, id));
+    }
+    for id in [0x82A3_u16, 0x40D4] {
+        add(did(0x7E7, None, id));
+    }
+    for id in [0x90_u8, 0xDF, 0xB0] {
+        add(gmlan(0x7E7, None, id));
+    }
+    rows
+}
+
+/// [`INIT`] followed by [`profile_table`].
+#[must_use]
+pub fn profile_lines() -> Vec<String> {
+    INIT.into_iter()
+        .map(str::to_string)
+        .chain(command_lines(&profile_table()))
+        .collect()
+}
+
+/// A profile line for a positive reply, data bytes only.
+///
+/// `$22` keeps the bytes after `62` and the identifier. `$1A` keeps the bytes
+/// after `5A` and the identifier. A negative response is `None`.
+#[must_use]
+pub fn profile_note(row: &ScanRow, data: &[u8]) -> Option<String> {
+    let value = match row.service {
+        0x22 if data.len() >= 3
+            && data[0] == 0x62
+            && u16::from_be_bytes([data[1], data[2]]) == row.identifier =>
+        {
+            &data[3..]
+        }
+        0x1A if data.len() >= 2 && data[0] == 0x5A && u16::from(data[1]) == row.identifier => {
+            &data[2..]
+        }
+        _ => return None,
+    };
+    let hex = value
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<String>();
+    Some(match row.service {
+        0x22 => format!("did {:04X} {hex}", row.identifier),
+        _ => format!("lid {:02X} hex {hex}", row.identifier),
+    })
+}
+
 fn request_line(row: &ScanRow) -> String {
     if row.service == 0x1A {
         format!("1A{:02X}", row.identifier)
@@ -292,6 +403,46 @@ mod tests {
             .any(|l| l.contains("621") && l.starts_with("ATCRA")));
         for line in &lines {
             match classify(line) {
+                Ok(Line::Adapter) | Ok(Line::Read(0x1A | 0x22)) => {}
+                other => panic!("{line} classified as {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn the_profile_capture_covers_the_lab_identifiers_and_stays_a_read() {
+        let rows = profile_table();
+        let has = |header, service, id| {
+            rows.iter()
+                .any(|row| row.header == header && row.service == service && row.identifier == id)
+        };
+        assert!(has(0x7E1, 0x22, 0x000D));
+        assert!(has(0x7E1, 0x22, 0x40D8));
+        assert!(has(0x7E4, 0x22, 0x4532));
+        assert!(has(0x7E4, 0x1A, 0xA4));
+        assert!(has(0x7E4, 0x1A, 0x75));
+        assert!(has(0x241, 0x22, 0x801F));
+        assert!(has(0x244, 0x22, 0x8000));
+        assert!(has(0x7E7, 0x22, 0x4181));
+        assert!(has(0x7E7, 0x22, 0x4240));
+        assert!(has(0x7E7, 0x22, 0x82A3));
+        assert!(has(0x24C, 0x1A, 0x90));
+        let mut seen = std::collections::BTreeSet::new();
+        for row in &rows {
+            assert!(seen.insert((row.header, row.service, row.identifier)));
+            assert!(row.service == 0x1A || row.service == 0x22);
+        }
+        let speed = rows
+            .iter()
+            .find(|row| row.header == 0x7E1 && row.identifier == 0x000D)
+            .unwrap();
+        assert_eq!(
+            profile_note(speed, &[0x62, 0x00, 0x0D, 0x28, 0x00]).as_deref(),
+            Some("did 000D 2800")
+        );
+        assert!(profile_note(speed, &[0x7F, 0x22, 0x31]).is_none());
+        for line in profile_lines() {
+            match classify(&line) {
                 Ok(Line::Adapter) | Ok(Line::Read(0x1A | 0x22)) => {}
                 other => panic!("{line} classified as {other:?}"),
             }
