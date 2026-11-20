@@ -4,7 +4,7 @@
 
 The session and gauge commands stay on loopback. `profile` dials the TCP address the operator passes, or on Windows opens the COM port they pass, at 115200 unless `--baud` says otherwise. `$27` is refused before it is written. Write services are refused. The socket will carry services `01`, `03`, `1A`, and `22`. The capture tables below send `1A` and `22` only.
 
-A device id in the programming client is not a CAN header. K17's device id is 40, and Voltage module 40 is header `241`. That number match is the one recorded here. No other device id in `spskit` `vit1.py` is paired with a header in this note.
+A device id in the programming client is not a CAN header. K17's device id is 40, and Voltage module 40 is header `241`, but those two uses of 40 are different address maps. No file pairs an SPS device id with an 11-bit request header. `spsvcs.dll` has no static device-to-header rows. A header for one of those ids would come from a live `$1A` `$B0` response, which this command does not interpret.
 
 ```mermaid
 flowchart TD
@@ -69,9 +69,11 @@ There is no second profile format for a project named fakevolt or obdkit. The cl
 
 These reads are still outside that pass:
 
-- The hub trial counted two service `01` requests and one service `03` request. The command bytes and the header in effect are not recorded in this note, so they are not in the table.
-- The Voltage 2.3.0 catalog lists 115 `$22` identifiers. The cell block is asked on `7E7`. A catalog identifier with no header in the lab profile or in `profile_table` is not sprayed across every header.
-- The appendix names more request headers than this command uses (`242`, `247`, `24B`, `251`, `252`, `255`, `257`, `258`, `7E2`, `7E5`, `7E6`, and others). A presence check is `$1A` `90` on a header only when that document already pairs a response filter. This note does not copy an unverified pair. The filters this command sets are `641`, `644`, and `64C`.
+- The 2026-11-14 trial sent mode `03` on `7DF` with headers on (`ATH1`, then `03`). The same trial's module-scan row also names mode `03` on `7E0`, `7E1`, `7E4`, and `7E7`, without a separate filter for each. The hub audit counted one allowed `03` and did not keep the request bytes. The command does not send `03`.
+- No trial log records an OBD mode `01` PID. The request atlas says the app sends no mode `01` request. The hub audit counted two allowed lines whose service byte was `01`, and those request bytes were not kept. `01FFFFFFFF000000` on `621` is a single-wire wake, not a PID. The command does not send a mode `01` PID.
+- Of the 115 catalog `$22` identifiers, 113 are already asked by `profile_table` or by `volt-lab.profile`. The two with no header in either file are `5247` and `5248`. All 70 catalog `42xx` identifiers sit inside the `7E7` sweep `4181` through `4250`.
+- The Voltage appendix pairs these request headers with response ids: `241`/`641`, `242`/`642`, `244`/`644`, `24B`/`64B`, `24C`/`64C`, `251`/`651`, `255`/`655`, `257`/`657`, `258`/`658`. Physical headers `7E0` through `7E7`, skipping `7E3`, use the default response eight above the request, and the appendix names no separate `ATCRA` for them. Headers with no paired response id are `100`, `101`, `247`, `252`, `621`, and `7DF`. `247` and `252` have filters `547` and `552` only. Heap strings `ATSH2410`, `ATSH7E00`, `ATSH7E40`, and `ATCRA6410` are a real header with the next digit glued on. They are not extra addresses.
+- This command sets response filters for `241`, `244`, and `24C` only. It asks `7E0`, `7E1`, `7E4`, `7E7`, `7DF`, and `621`. It does not ask `100`, `101`, `242`, `247`, `24B`, `251`, `252`, `255`, `257`, `258`, `7E2`, `7E5`, or `7E6`.
 - The single-wire wake frames from the trial are not module data, and they are not sent.
 
 Service `$27` and the write services stay out. The simulator refuses them. The app continued after that refusal, so emulation of that moment is the refusal, not a captured seed.
@@ -82,7 +84,7 @@ The checked-in `fakeobd` profile is on another branch and was not edited from he
 
 The programming client is `spskit`. `vit1.py` turns a saved module read into the VIT1 block on `getProgrammingData`. This crate does not post that request, and it does not download a calibration. A posted K17 request with no VIT1 came back `VIT_NO_VALID_CMB`. The catalog's suggested part numbers are not the module read. The calibration file is named from the module's own part numbers.
 
-Collect a complete row only for the controllers that VIN's SPS catalog names. The traced car's catalog is described in `spskit` `docs/calibration-downloads.md`. One missing part identifier and the builder will not attach the read.
+The traced catalog names 25 controller codes. Method 128, the block-same-cal list, is 23 rows and 21 codes, and that list includes K16. The short Normal list, method 1, is K114B, K124, K36, and K74. One missing part identifier and the builder will not attach the read.
 
 Keep the raw `$1A` payload. The decimal comment is the part slice, and the hex is what a later step needs when the hardware field is a string rather than a decimal. A negative reply is not a zero.
 
@@ -115,8 +117,8 @@ Keep the raw `$1A` payload. The decimal comment is the part slice, and the hex i
 
 K17's hardware length is 0, so `ssecuhn` stays the string from `$CC`. The other hardware cells in the table are the four-byte decimal. `$90` is collected only on the rows that say so.
 
-K16 is not in the table. Its part list is the string `P;C0,C1,C2` with length 0, and the builder does not split it. K73 request methods 520 and 566 copy three hardware bytes and do not turn that copy into `ssecuhn`.
+K16 is in the catalog, device id 205, request method 583, and it is not in the table. Its part list is the string `P;C0,C1,C2` with length 0, and the builder does not split it. `C0` appears in that string and in no pairable rule. K73 request methods 520 and 566 copy three bytes from `$81` and do not turn that copy into `ssecuhn`. Method 601 is the K73 row above.
 
-`voltkit profile COMn --set parts --clone` asks `$1A` `C0` through `CA` on five headers. The extra identifiers a full row can need, beyond that span, are `40`, `41` through `4A`, `60`, `62`, `64`, `66`, `68`, `6A`, `67`, `69`, `71`, `73`, `74`, `76`, and `CB`. Ask those with `--range` on a header that already answered. The command does not yet know which controller owns the header.
+`voltkit profile COMn --set parts --clone` asks `$1A` `C0` through `CA` on five headers. The pairable rows also need `40`, `41` through `4A`, `60`, `62`, `64`, `66`, `67`, `68`, `69`, `6A`, `71`, `73`, `74`, `76`, `90`, `CB`, and `CC`. `90`, `CB`, and `CC` are already asked on some of those headers by `identity`. The rest are not a set yet. Ask them with `--range` on a header that already answered. No SPS device id in the catalog has a recovered request header, so the range cannot be aimed at a controller by its device id.
 
 That saved read is what lets `getProgrammingData` name each blob, its size, its download id, and the server list. Fetching the file is the following SPS call. Putting a blob on a module is a later write, and it is outside this capture.
