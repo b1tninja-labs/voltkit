@@ -33,7 +33,8 @@ Point it at a loopback ELM327-over-TCP peer. Against fakeobd, that is `serve` wi
 and climate reads traced after it. Point it at the ELM adapter on the vehicle:
 a TCP address, or on Windows a COM port at 115200 baud. A positive reply prints
 a `did` or `lid` line whose hex is the data after the service and the identifier.
-`$27` is still refused. The VCX frame port is not this protocol.
+`$27` is still refused. The VCX frame port is not this protocol. The sets, the
+clone file, and the programming-read fields are in [docs/capture.md](docs/capture.md).
 
 `--set` dumps one group. `--range` walks a span of at most 256 identifiers on
 one header. `--clone` prints a lab profile on stdout (the dialogue stays on
