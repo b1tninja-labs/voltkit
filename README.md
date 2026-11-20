@@ -31,14 +31,22 @@ Point it at a loopback ELM327-over-TCP peer. Against fakeobd, that is `serve` wi
 
 `voltkit profile` reads the identifiers the lab profile answers, plus the charger
 and climate reads traced after it. Point it at the ELM adapter on the vehicle:
-a TCP address, or on Windows a COM port at 115200 baud. It prints each exchange
-and, for a positive reply, a `did` or `lid` line whose hex is the data after the
-service and the identifier. `$27` is still refused. The VCX frame port is not
-this protocol.
+a TCP address, or on Windows a COM port at 115200 baud. A positive reply prints
+a `did` or `lid` line whose hex is the data after the service and the identifier.
+`$27` is still refused. The VCX frame port is not this protocol.
+
+`--set` dumps one group. `--range` walks a span of at most 256 identifiers on
+one header. `--clone` prints a lab profile on stdout (the dialogue stays on
+stderr) that `fakeobd` can load. `parts` is `$1A` `C0` through `CA`; a positive
+line comments the decimal of the first four data bytes, which is the part-number
+slice. There is no separate `fakevolt` or `obdkit` profile format: the clone is
+the lab profile, and this client is the reader.
 
 ```bash
-cargo run -- profile 192.168.0.10:35000
-cargo run -- profile COM5 --baud 115200
+cargo run -- profile --list
+cargo run -- profile 192.168.0.10:35000 --set charger --set climate --clone
+cargo run -- profile COM5 --set parts --clone
+cargo run -- profile COM5 --range 7E7 22 4181 4240 --clone
 ```
 
 The gauge command sends six of those `$22` reads and prints the scaled fields. It dials

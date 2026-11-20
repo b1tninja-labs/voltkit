@@ -222,7 +222,7 @@ pub fn profile_table() -> Vec<ScanRow> {
     for id in [
         0x41B0_u16, 0x41B7, 0x436F, 0x4372, 0x439B, 0x441E, 0x4425, 0x43CB, 0x43CC, 0x43CD, 0x43CE,
         0x43CF, 0x452D, 0x452E, 0x4531, 0x4532, 0x452F, 0x4530, 0x4533, 0x4545, 0x4546, 0x8375,
-        0x8377, 0x4210, 0x4211, 0x4212, 0x41DA, 0x432A, 0x432C, 0x436B, 0x436C,
+        0x8377, 0x4210, 0x4211, 0x4212, 0x41DA, 0x432A, 0x432C, 0x436B, 0x436C, 0x83E1,
     ] {
         add(did(0x7E4, None, id));
     }
@@ -256,40 +256,53 @@ pub fn profile_table() -> Vec<ScanRow> {
     rows
 }
 
+/// [`INIT`] followed by the adapter and request lines for `rows`.
+#[must_use]
+pub fn lines_for(rows: &[ScanRow]) -> Vec<String> {
+    INIT.into_iter()
+        .map(str::to_string)
+        .chain(command_lines(rows))
+        .collect()
+}
+
 /// [`INIT`] followed by [`profile_table`].
 #[must_use]
 pub fn profile_lines() -> Vec<String> {
-    INIT.into_iter()
-        .map(str::to_string)
-        .chain(command_lines(&profile_table()))
-        .collect()
+    lines_for(&profile_table())
+}
+
+/// Bytes after the positive service and the identifier.
+#[must_use]
+pub fn profile_bytes<'a>(row: &ScanRow, data: &'a [u8]) -> Option<&'a [u8]> {
+    match row.service {
+        0x22 if data.len() >= 3
+            && data[0] == 0x62
+            && u16::from_be_bytes([data[1], data[2]]) == row.identifier =>
+        {
+            Some(&data[3..])
+        }
+        0x1A if data.len() >= 2 && data[0] == 0x5A && u16::from(data[1]) == row.identifier => {
+            Some(&data[2..])
+        }
+        _ => None,
+    }
 }
 
 /// A profile line for a positive reply, data bytes only.
 ///
 /// `$22` keeps the bytes after `62` and the identifier. `$1A` keeps the bytes
-/// after `5A` and the identifier. A negative response is `None`.
+/// after `5A` and the identifier. A negative response is `None`. The line is a
+/// `did` or `lid` directive the lab profile format accepts.
 #[must_use]
 pub fn profile_note(row: &ScanRow, data: &[u8]) -> Option<String> {
-    let value = match row.service {
-        0x22 if data.len() >= 3
-            && data[0] == 0x62
-            && u16::from_be_bytes([data[1], data[2]]) == row.identifier =>
-        {
-            &data[3..]
-        }
-        0x1A if data.len() >= 2 && data[0] == 0x5A && u16::from(data[1]) == row.identifier => {
-            &data[2..]
-        }
-        _ => return None,
-    };
+    let value = profile_bytes(row, data)?;
     let hex = value
         .iter()
         .map(|byte| format!("{byte:02X}"))
         .collect::<String>();
     Some(match row.service {
         0x22 => format!("did {:04X} {hex}", row.identifier),
-        _ => format!("lid {:02X} hex {hex}", row.identifier),
+        _ => format!("lid {:02X} {hex}", row.identifier),
     })
 }
 

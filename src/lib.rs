@@ -9,15 +9,18 @@
 
 #![forbid(unsafe_code)]
 
+mod capture;
 mod elm;
 mod gauges;
 mod scan;
 mod vin;
 
+pub use capture::{capture_set, clone_profile, range_rows, Read, SETS};
+
 pub use elm::{hex_spaced, payload, split_reply, Error, Line, Refuse, Reply, Session};
 pub use gauges::{exchange_gauges, gauge_session_lines};
 pub use scan::{
-    profile_lines, profile_note, profile_table, scan_lines, scan_table, session_lines, ScanRow,
-    INIT,
+    lines_for, profile_bytes, profile_lines, profile_note, profile_table, scan_lines, scan_table,
+    session_lines, ScanRow, INIT,
 };
 pub use vin::{us_volt, Shape, ShapeError, UsVolt};
