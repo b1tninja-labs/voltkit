@@ -244,7 +244,7 @@ pub fn profile_table() -> Vec<ScanRow> {
     for id in [0x90_u8, 0x99, 0xCC, 0xDF, 0xB0, 0x6F, 0x6D] {
         add(gmlan(0x24C, Some(0x64C), id));
     }
-    for id in 0x4182_u16..=0x4240 {
+    for id in 0x4182_u16..=0x4250 {
         add(did(0x7E7, None, id));
     }
     for id in [0x82A3_u16, 0x40D4] {
@@ -438,6 +438,7 @@ mod tests {
         assert!(has(0x244, 0x22, 0x8000));
         assert!(has(0x7E7, 0x22, 0x4181));
         assert!(has(0x7E7, 0x22, 0x4240));
+        assert!(has(0x7E7, 0x22, 0x4250));
         assert!(has(0x7E7, 0x22, 0x82A3));
         assert!(has(0x24C, 0x1A, 0x90));
         let mut seen = std::collections::BTreeSet::new();

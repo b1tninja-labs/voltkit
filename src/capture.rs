@@ -42,7 +42,10 @@ pub const SETS: &[(&str, &str)] = &[
         "charger",
         "the charger screen on 7E4, including 1A A4 and 1A 75",
     ),
-    ("cells", "7E7 cell table 4181-4240, plus 82A3 and 40D4"),
+    (
+        "cells",
+        "7E7 cell table 4181-4240, catalog tail 4241-4250, plus 82A3 and 40D4",
+    ),
     ("climate", "the climate reads on 241"),
     ("body", "the other 241 reads"),
     ("cluster", "header 244"),
@@ -74,7 +77,7 @@ pub fn capture_set(name: &str) -> Option<Vec<ScanRow>> {
             .filter(|row| {
                 row.header == 0x7E7
                     && row.service == 0x22
-                    && ((0x4181..=0x4240).contains(&row.identifier)
+                    && ((0x4181..=0x4250).contains(&row.identifier)
                         || matches!(row.identifier, 0x82A3 | 0x40D4))
             })
             .collect(),
@@ -276,6 +279,8 @@ mod tests {
         let cells = capture_set("cells").unwrap();
         assert!(cells.iter().any(|row| row.identifier == 0x4181));
         assert!(cells.iter().any(|row| row.identifier == 0x4240));
+        assert!(cells.iter().any(|row| row.identifier == 0x4250));
+        assert!(cells.iter().all(|row| row.identifier != 0x4251));
         assert!(cells.iter().all(|row| row.header == 0x7E7));
         assert!(capture_set("charger")
             .unwrap()

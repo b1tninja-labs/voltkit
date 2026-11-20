@@ -46,7 +46,7 @@ the lab profile, and this client is the reader.
 cargo run -- profile --list
 cargo run -- profile 192.168.0.10:35000 --set charger --set climate --clone
 cargo run -- profile COM5 --set parts --clone
-cargo run -- profile COM5 --range 7E7 22 4181 4240 --clone
+cargo run -- profile COM5 --set cells --clone
 ```
 
 The gauge command sends six of those `$22` reads and prints the scaled fields. It dials
