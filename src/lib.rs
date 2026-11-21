@@ -25,4 +25,4 @@ pub use scan::{
     lines_for, profile_bytes, profile_lines, profile_note, profile_table, scan_lines, scan_table,
     session_lines, ScanRow, INIT,
 };
-pub use vin::{us_volt, Shape, ShapeError, UsVolt};
+pub use vin::{identify, us_bolt, us_volt, BoltSeries, Model, Shape, ShapeError, UsBolt, UsVolt};

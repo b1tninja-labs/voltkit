@@ -1,9 +1,14 @@
-//! Shape of a US second-generation Volt, from GM's VIN standards filed with NHTSA.
+//! Shape of a US Chevrolet Volt or Bolt EV, from GM's VIN standards filed with NHTSA.
 //!
-//! The filings are `gm-vin-2016` through `gm-vin-2019` in `D:\reference\vin`. Each one
-//! has the same worked check-digit example. The Chevrolet Volt page of each filing is
-//! the character check. This module does not contain a vehicle identification number;
-//! the worked example lives in the unit test.
+//! The filings are the `vin` collection in primarysource: `vin:gm-vin-2016` through
+//! `vin:gm-vin-2019`. Each one has the same worked check-digit example. This module
+//! does not contain a vehicle identification number; the worked example lives in the
+//! unit test. The collection serves the pages and does not decode a string. The
+//! positions below are the ones those pages print.
+//!
+//! Volt: `vin:gm-vin-2016§33`, `vin:gm-vin-2017§35`, `vin:gm-vin-2018§28`,
+//! `vin:gm-vin-2019§27`. Bolt EV: `vin:gm-vin-2017§25`, `vin:gm-vin-2018§20`,
+//! `vin:gm-vin-2019§19`. The 2016 filing has no Bolt page.
 
 /// Why a string is not a 2016–2019 US Volt identification number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,6 +21,10 @@ pub enum ShapeError {
     CheckDigit,
     /// The check digit matches, and a Chevrolet Volt position does not.
     NotUsVolt,
+    /// The check digit matches, and a Chevrolet Bolt EV position does not.
+    NotUsBolt,
+    /// The check digit matches, and neither the Volt nor the Bolt EV US card matches.
+    Neither,
 }
 
 /// Position 5 on the Chevrolet Volt page.
@@ -31,6 +40,19 @@ pub enum Series {
     LtzOrPremierLowEmissions,
 }
 
+/// Position 5 on the Chevrolet Bolt EV page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoltSeries {
+    /// `W`: LT, on the 2017, 2018, and 2019 cards.
+    Lt,
+    /// `X`: Premier, on the 2017, 2018, and 2019 cards.
+    Premier,
+    /// `Y`: LT with DC fast charging. The 2019 card is the one that prints this code.
+    LtDcFast,
+    /// `Z`: Premier with DC fast charging. The 2019 card is the one that prints this code.
+    PremierDcFast,
+}
+
 /// A string that matches the US Chevrolet Volt card for one of model years 2016–2019.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UsVolt {
@@ -40,6 +62,26 @@ pub struct UsVolt {
     pub series: Series,
     /// Positions 12–17, as a number.
     pub sequence: u32,
+}
+
+/// A string that matches the US Chevrolet Bolt EV card for one of model years 2017–2019.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsBolt {
+    /// Position 10: `H` 2017, `J` 2018, `K` 2019.
+    pub model_year: u16,
+    /// Position 5.
+    pub series: BoltSeries,
+    /// Positions 12–17, as a number.
+    pub sequence: u32,
+}
+
+/// Which US card a string matches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Model {
+    /// Chevrolet Volt, model years 2016–2019.
+    Volt(UsVolt),
+    /// Chevrolet Bolt EV, model years 2017–2019.
+    Bolt(UsBolt),
 }
 
 /// Result of the Volt-page check.
@@ -173,6 +215,72 @@ pub fn us_volt(vin: &str) -> Shape {
     })
 }
 
+/// Accept a 2017–2019 US Chevrolet Bolt EV string from the three filings that have a Bolt page.
+///
+/// Positions, for a car whose first character is `1` (United States): `1G1` and line
+/// `F`, series `W` or `X` (and, on the 2019 card only, `Y` or `Z`), body `6`, restraint
+/// `E` or `S`, engine `0` (the card's `EN0`), a matching check digit, model year
+/// `H`/`J`/`K`, plant `4` (Orion), and six sequence digits. Series `7` is the card's
+/// non-US mark and is not accepted here.
+///
+/// # Errors
+///
+/// Returns a [`ShapeError`] naming the first check that failed.
+pub fn us_bolt(vin: &str) -> Result<UsBolt, ShapeError> {
+    let c = chars(vin)?;
+    if !check_digit_matches(vin)? {
+        return Err(ShapeError::CheckDigit);
+    }
+    if &c[0..3] != b"1G1" || c[3] != b'F' || c[5] != b'6' || c[7] != b'0' || c[10] != b'4' {
+        return Err(ShapeError::NotUsBolt);
+    }
+    if c[6] != b'E' && c[6] != b'S' {
+        return Err(ShapeError::NotUsBolt);
+    }
+    let model_year = match c[9] {
+        b'H' => 2017,
+        b'J' => 2018,
+        b'K' => 2019,
+        _ => return Err(ShapeError::NotUsBolt),
+    };
+    let series = match c[4] {
+        b'W' => BoltSeries::Lt,
+        b'X' => BoltSeries::Premier,
+        b'Y' if model_year == 2019 => BoltSeries::LtDcFast,
+        b'Z' if model_year == 2019 => BoltSeries::PremierDcFast,
+        _ => return Err(ShapeError::NotUsBolt),
+    };
+    let sequence = std::str::from_utf8(&c[11..17])
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|_| c[11..17].iter().all(|b| b.is_ascii_digit()))
+        .ok_or(ShapeError::NotUsBolt)?;
+    Ok(UsBolt {
+        model_year,
+        series,
+        sequence,
+    })
+}
+
+/// The US Volt card, or the US Bolt EV card, for the model years those filings print.
+///
+/// # Errors
+///
+/// Returns [`ShapeError::Length`], [`ShapeError::Character`], or [`ShapeError::CheckDigit`]
+/// from the shared checks. A string that passes the check digit and matches neither card
+/// is [`ShapeError::Neither`].
+pub fn identify(vin: &str) -> Result<Model, ShapeError> {
+    match us_volt(vin) {
+        Ok(car) => Ok(Model::Volt(car)),
+        Err(ShapeError::NotUsVolt) => match us_bolt(vin) {
+            Ok(car) => Ok(Model::Bolt(car)),
+            Err(ShapeError::NotUsBolt) => Err(ShapeError::Neither),
+            Err(err) => Err(err),
+        },
+        Err(err) => Err(err),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,6 +340,66 @@ mod tests {
         let digit = expected_check_digit(&s).unwrap();
         s.replace_range(8..9, &digit.to_string());
         assert_eq!(us_volt(&s), Err(ShapeError::NotUsVolt));
+        assert_eq!(identify(&s), Err(ShapeError::Neither));
+    }
+
+    fn with_check_digit(template: &str) -> String {
+        let mut s = template.to_string();
+        let digit = expected_check_digit(&s).unwrap();
+        s.replace_range(8..9, &digit.to_string());
+        s
+    }
+
+    #[test]
+    fn a_string_built_from_the_bolt_card_names_the_year_and_the_series() {
+        // 2017 card: 1G1, line F, series W, body 6, restraint E, engine 0, year H, plant 4.
+        // Sequence digits are the last six of the worked example. Position 9 is filled
+        // by the same function.
+        let s = with_check_digit("1G1FW6E00H4923456");
+        assert_eq!(
+            us_bolt(&s),
+            Ok(UsBolt {
+                model_year: 2017,
+                series: BoltSeries::Lt,
+                sequence: 923_456,
+            })
+        );
+        assert_eq!(identify(&s), Ok(Model::Bolt(us_bolt(&s).unwrap())));
+        assert_eq!(us_volt(&s), Err(ShapeError::NotUsVolt));
+
+        let later = with_check_digit("1G1FW6E00J4923456");
+        assert_eq!(us_bolt(&later).unwrap().model_year, 2018);
+        let later = with_check_digit("1G1FW6E00K4923456");
+        assert_eq!(us_bolt(&later).unwrap().model_year, 2019);
+
+        let premier = with_check_digit("1G1FX6E00H4923456");
+        assert_eq!(us_bolt(&premier).unwrap().series, BoltSeries::Premier);
+        let restrained = with_check_digit("1G1FW6S00H4923456");
+        assert_eq!(us_bolt(&restrained).unwrap().series, BoltSeries::Lt);
+
+        let fast = with_check_digit("1G1FY6E00K4923456");
+        assert_eq!(us_bolt(&fast).unwrap().series, BoltSeries::LtDcFast);
+        let fast = with_check_digit("1G1FZ6E00K4923456");
+        assert_eq!(us_bolt(&fast).unwrap().series, BoltSeries::PremierDcFast);
+        assert_eq!(
+            us_bolt(&with_check_digit("1G1FY6E00H4923456")),
+            Err(ShapeError::NotUsBolt)
+        );
+        assert_eq!(
+            us_bolt(&with_check_digit("1G1F76E00H4923456")),
+            Err(ShapeError::NotUsBolt)
+        );
+        assert_eq!(
+            us_bolt(&with_check_digit("1G1FW6E00G4923456")),
+            Err(ShapeError::NotUsBolt)
+        );
+    }
+
+    #[test]
+    fn identify_names_a_volt_built_from_the_2016_card() {
+        let s = with_check_digit("1G1RA6S50GU923456");
+        assert_eq!(identify(&s), Ok(Model::Volt(us_volt(&s).unwrap())));
+        assert_eq!(identify(WORKED), Err(ShapeError::Neither));
     }
 
     #[test]

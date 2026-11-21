@@ -17,8 +17,10 @@ no recorded response id. The raw single-wire frame from that trial is not sent.
 `$27` is refused before it is written. The only diagnostic services the socket will carry are
 `01`, `03`, `1A`, and `22`. There is no Bluetooth path and no write service.
 
-A 17-character check against the Chevrolet Volt pages of GM's 2016–2019 NHTSA filings lives in
-`vin`. The check-digit test vector is the worked example printed in those filings.
+A 17-character check against the Chevrolet Volt and Bolt EV pages of GM's 2016–2019 NHTSA
+filings lives in `vin`. Those pages are `vin:gm-vin-2016` through `vin:gm-vin-2019` in
+primarysource. The 2016 filing has a Volt page and no Bolt page. The check-digit test vector
+is the worked example printed in those filings.
 
 ## Run
 
