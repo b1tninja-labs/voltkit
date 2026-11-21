@@ -13,6 +13,7 @@ use voltkit::{
 const USAGE: &str = "\
 usage: voltkit wizard
        voltkit lab
+       voltkit bench
        voltkit HOST:PORT
        voltkit gauges --host 127.0.0.1:PORT
        voltkit profile --list
@@ -55,6 +56,12 @@ fn run() -> Result<(), String> {
         }
         return lab();
     }
+    if first == "bench" {
+        if args.next().is_some() {
+            return Err(USAGE.to_string());
+        }
+        return bench();
+    }
     if args.next().is_some() || first.starts_with('-') {
         return Err(USAGE.to_string());
     }
@@ -67,6 +74,13 @@ fn lab() -> Result<(), String> {
     let mut peer = voltkit::lab::LabPeer::start(&program).map_err(|e| e.to_string())?;
     let session = peer.dial().map_err(|e| e.to_string())?;
     print_session(voltkit::lab::ADDRESS, session)
+}
+
+fn bench() -> Result<(), String> {
+    let program = voltkit::bench::program(std::env::var_os(voltkit::bench::PROGRAM_ENV));
+    let mut peer = voltkit::bench::BenchPeer::start(&program).map_err(|e| e.to_string())?;
+    let session = peer.dial().map_err(|e| e.to_string())?;
+    print_session(voltkit::bench::ADDRESS, session)
 }
 
 fn print_session(peer: &str, mut session: Session) -> Result<(), String> {
