@@ -12,7 +12,9 @@ HTTP, or the VCX frame port itself.
 | SPS | `spskit` builds a VIT1 programming-data body from a saved module read. It does not post the body and it does not program the car | The programming job asks `parts`, `sps-extra`, `hardware`, and `identity`. Nothing here calls `spskit`, and there is no `fakesps` peer yet. |
 | Dongle | `vcxtoolkit` packs a VCX serial frame and, on Windows, can open the USB serial port | Not wired. A registered J2534 DLL is not built in `vcxtoolkit` or here. The direct frame library is the path that exists. The fifteen `PassThru*` exports stay unbuilt until SAE J2534 is imported into primarysource. |
 
-`gattmirror` is the Android-emulator HCI mirror. It is not this TCP peer.
+`gattmirror` is the Android-emulator HCI mirror. It is not this TCP peer. The split between
+these peers — what voltkit reads and what each separate process owns — is written in
+[docs/tool-boundary.md](docs/tool-boundary.md).
 
 `$27` is refused before it is written. The only diagnostic services the socket will carry are
 `01`, `03`, `1A`, and `22`. A capture from a car is gitignored (`*.profile`, `profiles/`,
