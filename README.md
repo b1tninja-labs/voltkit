@@ -8,8 +8,9 @@ ELM327 datasheet command: `ATZ`, `ATL0`, `ATH0`, `ATS0`, `ATSP6`, `ATE0`, `ATCAF
 ELM protocol 6, ISO 15765-4 CAN with an 11-bit identifier at 500 kbaud. That protocol number
 is not a statement about ISO 15765-2.
 
-The scan is the trial's `$1A` identifiers (`90`, `DF`, `B0`, `99`, `CC`, `6F`, `6D`) and the
-29 `$22` data identifiers, each with the header that trial used. Header `241` is the only one
+The scan is the trial's `$1A` identifiers (`90`, `DF`, `B0`, `99`, `CC`, `6F`, `6D`), mode `03`
+on `7DF` with headers on, and the 29 `$22` data identifiers, each with the header that trial used.
+Header `241` is the only one
 the trial paired with a receive address (`ATCRA641`). `2889` is also asked at `621`, which has
 no recorded response id. The raw single-wire frame from that trial is not sent.
 

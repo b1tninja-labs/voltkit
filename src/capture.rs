@@ -31,10 +31,31 @@ const PART_HEADERS: [(u16, Option<u16>); 5] = [
     (0x241, Some(0x641)),
 ];
 
+// Appendix pairs the lab profile does not already ask. Physical headers set no ATCRA.
+const PRESENCE_HEADERS: [(u16, Option<u16>); 9] = [
+    (0x242, Some(0x642)),
+    (0x24B, Some(0x64B)),
+    (0x251, Some(0x651)),
+    (0x255, Some(0x655)),
+    (0x257, Some(0x657)),
+    (0x258, Some(0x658)),
+    (0x7E2, None),
+    (0x7E5, None),
+    (0x7E6, None),
+];
+
+const SPS_EXTRA: [u8; 23] = [
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x60, 0x62, 0x64, 0x66, 0x67,
+    0x68, 0x69, 0x6A, 0x71, 0x73, 0x74, 0x76,
+];
+
 /// Set name and the one line `--list` prints.
 pub const SETS: &[(&str, &str)] = &[
-    ("all", "every identifier in the lab profile capture"),
-    ("scan", "the 2026-11-14 trial only"),
+    ("all", "the lab profile capture, including mode 03 on 7DF"),
+    (
+        "scan",
+        "the 2026-11-14 trial only, including mode 03 on 7DF",
+    ),
     ("hpcm", "header 7E0"),
     ("powertrain", "header 7E1"),
     ("becm", "header 7E4"),
@@ -51,6 +72,14 @@ pub const SETS: &[(&str, &str)] = &[
     ("cluster", "header 244"),
     ("identity", "every $1A read in the lab capture"),
     ("parts", "$1A C0 through CA on 7E0, 7E1, 7E4, 7E7, and 241"),
+    (
+        "presence",
+        "$1A 90 on 242, 24B, 251, 255, 257, 258, 7E2, 7E5, and 7E6",
+    ),
+    (
+        "sps-extra",
+        "$1A 40-4A, 60, 62, 64, 66-6A, 71, 73, 74, and 76 on the parts headers",
+    ),
 ];
 
 /// The rows for `name`, or `None` when `name` is not a set.
@@ -60,6 +89,8 @@ pub fn capture_set(name: &str) -> Option<Vec<ScanRow>> {
         "all" => return Some(profile_table()),
         "scan" => return Some(scan_table().to_vec()),
         "parts" => return Some(part_rows()),
+        "presence" => return Some(presence_rows()),
+        "sps-extra" => return Some(sps_extra_rows()),
         "hpcm" => on_header(0x7E0),
         "powertrain" => on_header(0x7E1),
         "becm" => on_header(0x7E4),
@@ -148,13 +179,33 @@ pub fn range_rows(header: u16, service: u8, start: u16, end: u16) -> Result<Vec<
 /// One `ecu` block per header that has a recorded response id. A positive
 /// `$1A` `C0`–`CA` line carries the decimal of its first four data bytes, which
 /// is the part-number slice. Other headers are comments, so a missing response
-/// id is not invented.
+/// id is not invented. A positive mode `03` reply, which starts with `43`, is a
+/// comment of the raw hex. A negative reply is left out.
 #[must_use]
 pub fn clone_profile(reads: &[Read]) -> String {
     let mut seen = std::collections::BTreeSet::new();
     let mut grouped: Vec<(u16, Vec<String>)> = Vec::new();
     let mut notes = Vec::new();
     for read in reads {
+        if read.row.service == 0x03 {
+            if read.data.first() == Some(&0x43)
+                && seen.insert((read.row.header, read.row.service, read.row.identifier))
+            {
+                let hex = read
+                    .data
+                    .iter()
+                    .map(|byte| format!("{byte:02X}"))
+                    .collect::<String>();
+                notes.push(format!("# {hex}"));
+                if read.row.receive.is_none() {
+                    notes.push(format!(
+                        "# header {:03X} has no recorded response id",
+                        read.row.header
+                    ));
+                }
+            }
+            continue;
+        }
         let Some(mut line) = profile_note(&read.row, &read.data) else {
             continue;
         };
@@ -188,7 +239,8 @@ pub fn clone_profile(reads: &[Read]) -> String {
     }
     let mut out = String::from(
         "# Captured module bytes. A did or lid line is the data after the service and the identifier.\n\
-         # Latency is the lab profile's value. Mode 01, freeze frames, and DTCs are not in this capture.\n\
+         # Latency is the lab profile's value. Mode 01 and freeze frames are not in this capture.\n\
+         # A positive mode 03 reply is a comment of the raw hex.\n\
          s3 5000\n",
     );
     const PREFERRED: [u16; 7] = [0x7E0, 0x7E4, 0x244, 0x241, 0x24C, 0x7E1, 0x7E7];
@@ -225,6 +277,24 @@ fn part_rows() -> Vec<ScanRow> {
     let mut rows = Vec::new();
     for (header, receive) in PART_HEADERS {
         for id in 0xC0u8..=0xCA {
+            rows.push(gmlan(header, receive, id));
+        }
+    }
+    rows
+}
+
+fn presence_rows() -> Vec<ScanRow> {
+    let mut rows = Vec::new();
+    for (header, receive) in PRESENCE_HEADERS {
+        rows.push(gmlan(header, receive, 0x90));
+    }
+    rows
+}
+
+fn sps_extra_rows() -> Vec<ScanRow> {
+    let mut rows = Vec::new();
+    for (header, receive) in PART_HEADERS {
+        for id in SPS_EXTRA {
             rows.push(gmlan(header, receive, id));
         }
     }
@@ -272,6 +342,8 @@ fn push_ecu(out: &mut String, header: u16, lines: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::elm::{classify, Line};
+    use crate::scan::command_lines;
 
     #[test]
     fn sets_split_the_capture_and_parts_stay_out_of_all() {
@@ -300,7 +372,52 @@ mod tests {
             .iter()
             .all(|row| { !(row.service == 0x1A && (0xC0..=0xCA).contains(&row.identifier)) }));
         assert!(capture_set("nope").is_none());
-        assert_eq!(SETS.len(), 12);
+        let presence = capture_set("presence").unwrap();
+        assert_eq!(presence.len(), PRESENCE_HEADERS.len());
+        assert!(presence
+            .iter()
+            .all(|row| row.service == 0x1A && row.identifier == 0x90));
+        assert!(presence
+            .iter()
+            .any(|row| row.header == 0x242 && row.receive == Some(0x642)));
+        assert_eq!(
+            presence
+                .iter()
+                .map(|row| (row.header, row.receive))
+                .collect::<Vec<_>>(),
+            PRESENCE_HEADERS
+        );
+        assert!(all.iter().all(|row| {
+            !PRESENCE_HEADERS
+                .iter()
+                .any(|(header, _)| row.header == *header)
+        }));
+        let extra = capture_set("sps-extra").unwrap();
+        assert_eq!(extra.len(), SPS_EXTRA.len() * PART_HEADERS.len());
+        assert!(extra.iter().all(|row| row.service == 0x1A));
+        assert!(extra.iter().all(|row| row.identifier != 0xC0));
+        assert!(extra
+            .iter()
+            .all(|row| !matches!(row.identifier, 0x90 | 0xCB | 0xCC)));
+        assert!(extra
+            .iter()
+            .any(|row| row.header == 0x241 && row.receive == Some(0x641)));
+        assert!(all.iter().all(|row| {
+            !(row.service == 0x1A && SPS_EXTRA.iter().any(|id| u16::from(*id) == row.identifier))
+        }));
+        let mode = all
+            .iter()
+            .find(|row| row.header == 0x7DF && row.service == 0x03)
+            .unwrap();
+        assert!(mode.headers_on);
+        assert_eq!(mode.receive, None);
+        let request = command_lines(std::slice::from_ref(mode))
+            .into_iter()
+            .find(|line| classify(line) == Ok(Line::Read(0x03)))
+            .unwrap();
+        assert_eq!(request, "03");
+        assert!(all.iter().all(|row| row.service != 0x01));
+        assert_eq!(SETS.len(), 14);
     }
 
     #[test]
@@ -338,6 +455,28 @@ mod tests {
                 row: unknown,
                 data: vec![0x62, 0x28, 0x89, 0x00],
             },
+            Read {
+                row: ScanRow {
+                    header: 0x7DF,
+                    receive: None,
+                    service: 0x03,
+                    identifier: 0,
+                    headers_on: true,
+                    flow_override: false,
+                },
+                data: vec![0x43, 0x01, 0x0A, 0x7E],
+            },
+            Read {
+                row: ScanRow {
+                    header: 0x7DF,
+                    receive: None,
+                    service: 0x03,
+                    identifier: 0,
+                    headers_on: true,
+                    flow_override: false,
+                },
+                data: vec![0x7F, 0x03, 0x31],
+            },
         ]);
         assert!(text.contains("ecu BECM req=7E4 resp=7EC functional=yes pad=00 latency=4"));
         assert!(text.contains("did 4532 0001"));
@@ -345,6 +484,10 @@ mod tests {
         assert!(!text.contains("did 000D"));
         assert!(text.contains("# did 2889 00"));
         assert!(text.contains("header 621 has no recorded response id"));
+        assert!(text.contains("# 43010A7E"));
+        assert!(text.contains("header 7DF has no recorded response id"));
+        assert!(!text.contains("dtc"));
+        assert!(!text.contains("7F0331"));
         assert!(!text.contains("req=621"));
         assert_eq!(text.matches("ecu ").count(), 1);
         assert!(clone_profile(&[]).contains("# no positive reply"));

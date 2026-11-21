@@ -114,7 +114,9 @@ fn profile(args: impl Iterator<Item = String>) -> Result<(), String> {
         match payload(&line, &reply.lines) {
             Some(bytes) => {
                 emit(parsed.clone, &format!("= {}", hex_spaced(&bytes)));
-                if let Some(note) = profile_note(row, &bytes) {
+                if bytes.first() == Some(&0x43) && row.service == 0x03 {
+                    answered += 1;
+                } else if let Some(note) = profile_note(row, &bytes) {
                     answered += 1;
                     emit(parsed.clone, &note);
                 } else {

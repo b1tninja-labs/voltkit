@@ -1,8 +1,8 @@
 //! Read client for the Voltage app's Wi-Fi session: ELM327 command lines over TCP.
 //!
 //! Each line is terminated by a carriage return. The session is the reset-and-format
-//! sequence from the ELM327 datasheet, then the `$1A` identifiers and `$22` data
-//! identifiers from the 2026-11-14 Voltage trial. `profile` reads the lab profile's
+//! sequence from the ELM327 datasheet, then the `$1A` identifiers, mode `03` on `7DF`,
+//! and the `$22` data identifiers from the 2026-11-14 Voltage trial. `profile` reads the lab profile's
 //! identifiers from the adapter address the operator passes. `gauges` reads six of those `$22`
 //! identifiers and prints the scaled fields. SecurityAccess (`$27`) and write
 //! services are refused before any byte is written. There is no Bluetooth path.

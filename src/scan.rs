@@ -20,9 +20,9 @@ pub struct ScanRow {
     pub header: u16,
     /// `ATCRA` value recorded for this read. `None` means the trial set none.
     pub receive: Option<u16>,
-    /// Service identifier, `0x1A` or `0x22`.
+    /// Service identifier: `0x03`, `0x1A`, or `0x22`.
     pub service: u8,
-    /// `$1A` identifier, or the `$22` data identifier.
+    /// `$1A` identifier, the `$22` data identifier, or zero for service `0x03`.
     pub identifier: u16,
     /// The trial turned headers on before this read.
     pub headers_on: bool,
@@ -64,11 +64,23 @@ const fn gmlan_headers(header: u16, receive: Option<u16>, id: u8) -> ScanRow {
     row
 }
 
+const fn mode03(header: u16) -> ScanRow {
+    ScanRow {
+        header,
+        receive: None,
+        service: 0x03,
+        identifier: 0,
+        headers_on: true,
+        flow_override: false,
+    }
+}
+
 const TABLE: &[ScanRow] = &[
     gmlan(0x7E4, None, 0x90),
     gmlan(0x241, R641, 0x90),
     gmlan_flow(0x241, R641, 0xDF),
     gmlan_headers(0x7DF, None, 0xB0),
+    mode03(0x7DF),
     gmlan(0x7E0, None, 0x99),
     gmlan(0x7E0, None, 0xCC),
     gmlan(0x7E0, None, 0x6F),
@@ -117,10 +129,11 @@ const TABLE: &[ScanRow] = &[
     did(0x241, R641, 0xCB31),
 ];
 
-/// `$1A` identifiers `90`, `DF`, `B0`, `99`, `CC`, `6F`, `6D`, then the 29 `$22` DIDs.
+/// `$1A` identifiers `90`, `DF`, `B0`, `99`, `CC`, `6F`, `6D`, one mode `03` on `7DF`,
+/// then the 29 `$22` DIDs.
 ///
 /// `2889` is one DID asked on two headers (`7E1` and `621`), so the table has 30 `$22`
-/// rows and 29 identifiers.
+/// rows and 29 identifiers. The mode `03` row has headers on and no receive address.
 #[must_use]
 pub fn scan_table() -> &'static [ScanRow] {
     TABLE
@@ -128,7 +141,7 @@ pub fn scan_table() -> &'static [ScanRow] {
 
 /// Adapter and request lines for [`scan_table`], assuming [`INIT`] was sent first.
 ///
-/// `ATH0` is sent again after the one read the trial made with headers on. The trial
+/// `ATH0` is sent again after the headers-on reads on `7DF`. The trial
 /// did not record turning headers back off; the later reads use the init setting so
 /// the reply is the diagnostic payload.
 #[must_use]
@@ -291,10 +304,14 @@ pub fn profile_bytes<'a>(row: &ScanRow, data: &'a [u8]) -> Option<&'a [u8]> {
 /// A profile line for a positive reply, data bytes only.
 ///
 /// `$22` keeps the bytes after `62` and the identifier. `$1A` keeps the bytes
-/// after `5A` and the identifier. A negative response is `None`. The line is a
+/// after `5A` and the identifier. Service `0x03` is `None` here; the clone
+/// comments a positive `43` payload. A negative response is `None`. The line is a
 /// `did` or `lid` directive the lab profile format accepts.
 #[must_use]
 pub fn profile_note(row: &ScanRow, data: &[u8]) -> Option<String> {
+    if row.service == 0x03 {
+        return None;
+    }
     let value = profile_bytes(row, data)?;
     let hex = value
         .iter()
@@ -309,6 +326,8 @@ pub fn profile_note(row: &ScanRow, data: &[u8]) -> Option<String> {
 fn request_line(row: &ScanRow) -> String {
     if row.service == 0x1A {
         format!("1A{:02X}", row.identifier)
+    } else if row.service == 0x03 {
+        "03".to_string()
     } else {
         format!("22{:04X}", row.identifier)
     }
@@ -403,10 +422,10 @@ mod tests {
                 "ATFCSM0"
             ]
         );
-        assert!(scan.windows(4).any(|w| {
+        assert!(scan.windows(5).any(|w| {
             w.iter()
                 .map(String::as_str)
-                .eq(["ATSH7DF", "ATCRA", "ATH1", "1AB0"])
+                .eq(["ATSH7DF", "ATCRA", "ATH1", "1AB0", "03"])
         }));
         assert!(scan
             .windows(2)
@@ -416,7 +435,7 @@ mod tests {
             .any(|l| l.contains("621") && l.starts_with("ATCRA")));
         for line in &lines {
             match classify(line) {
-                Ok(Line::Adapter) | Ok(Line::Read(0x1A | 0x22)) => {}
+                Ok(Line::Adapter) | Ok(Line::Read(0x1A | 0x22 | 0x03)) => {}
                 other => panic!("{line} classified as {other:?}"),
             }
         }
@@ -444,8 +463,10 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for row in &rows {
             assert!(seen.insert((row.header, row.service, row.identifier)));
-            assert!(row.service == 0x1A || row.service == 0x22);
+            assert!(matches!(row.service, 0x03 | 0x1A | 0x22));
         }
+        assert_eq!(rows.iter().filter(|row| row.service == 0x03).count(), 1);
+        assert!(rows.iter().all(|row| row.service != 0x01));
         let speed = rows
             .iter()
             .find(|row| row.header == 0x7E1 && row.identifier == 0x000D)
@@ -457,7 +478,7 @@ mod tests {
         assert!(profile_note(speed, &[0x7F, 0x22, 0x31]).is_none());
         for line in profile_lines() {
             match classify(&line) {
-                Ok(Line::Adapter) | Ok(Line::Read(0x1A | 0x22)) => {}
+                Ok(Line::Adapter) | Ok(Line::Read(0x1A | 0x22 | 0x03)) => {}
                 other => panic!("{line} classified as {other:?}"),
             }
         }
