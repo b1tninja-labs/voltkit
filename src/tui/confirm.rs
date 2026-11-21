@@ -2,7 +2,7 @@
 
 use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 use voltkit::wizard::{self, Plan};
 
@@ -34,18 +34,42 @@ pub fn draw(frame: &mut ratatui::Frame, area: Rect, plan: &Plan) {
         Paragraph::new("voltkit").style(Style::new().add_modifier(Modifier::BOLD)),
         title,
     );
-    let text = wizard::describe(plan).unwrap_or_else(|err| err);
-    frame.render_widget(
-        Paragraph::new(text)
-            .block(Block::bordered().title("Run this?"))
-            .wrap(Wrap { trim: false }),
-        body,
-    );
+    let block = Block::bordered().title("Run this?");
+    let inner = block.inner(body);
+    frame.render_widget(block, body);
+    match wizard::describe(plan) {
+        Ok(text) => frame.render_widget(
+            Paragraph::new(labeled_rows(&text)).wrap(Wrap { trim: false }),
+            inner,
+        ),
+        Err(err) => frame.render_widget(
+            Paragraph::new(err)
+                .style(Style::new().fg(Color::Red))
+                .wrap(Wrap { trim: false }),
+            inner,
+        ),
+    }
     frame.render_widget(
         Paragraph::new("y runs the reads. n goes back to the menu. Esc returns to the adapter.")
             .style(Style::new().dim()),
         footer,
     );
+}
+
+fn labeled_rows(text: &str) -> String {
+    const LABELS: [&str; 4] = ["What", "Reads", "Command", "Profile"];
+    let width = LABELS
+        .iter()
+        .map(|label| label.len())
+        .max()
+        .unwrap_or_default()
+        + 2;
+    let mut blocks = text.splitn(LABELS.len(), '\n');
+    LABELS
+        .into_iter()
+        .map_while(|label| blocks.next().map(|value| format!("{label:<width$}{value}")))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

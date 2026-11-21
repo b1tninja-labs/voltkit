@@ -2,7 +2,7 @@
 
 use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
@@ -71,7 +71,7 @@ impl Progress {
         let start = self.lines.len().saturating_sub(height.max(1));
         let shown: Vec<Line> = self.lines[start..]
             .iter()
-            .map(|line| Line::from(line.clone()))
+            .map(|line| log_line(line))
             .collect();
         frame.render_widget(
             Paragraph::new(Text::from(shown)).wrap(Wrap { trim: false }),
@@ -95,6 +95,23 @@ impl Progress {
             self.answered, self.negative, self.silent
         )
     }
+}
+
+fn log_line(text: &str) -> Line<'_> {
+    let style = if text.starts_with("> ") {
+        Style::new().add_modifier(Modifier::DIM)
+    } else if text.starts_with("= ") {
+        Style::new().fg(Color::Green)
+    } else if text.starts_with("# ") {
+        Style::new().fg(Color::Cyan)
+    } else if text.starts_with("< ")
+        && (text.contains("NO DATA") || text.contains("ERROR") || text.contains("UNABLE"))
+    {
+        Style::new().fg(Color::Yellow)
+    } else {
+        Style::new()
+    };
+    Line::from(text).style(style)
 }
 
 #[cfg(test)]

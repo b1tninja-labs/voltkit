@@ -234,8 +234,12 @@ impl Menu {
             .highlight_symbol(">");
         let mut state = ListState::default().with_selected(Some(self.jobs));
         frame.render_stateful_widget(list, left, &mut state);
+        let pane = match self.job_command() {
+            Some(command) => format!("{}\n\n{command}", self.job_detail()),
+            None => self.job_detail(),
+        };
         frame.render_widget(
-            Paragraph::new(self.job_detail())
+            Paragraph::new(pane)
                 .block(Block::bordered().title("This asks"))
                 .wrap(Wrap { trim: false }),
             right,
@@ -251,6 +255,19 @@ impl Menu {
             return "Asks one named screen from the lab profile.".to_string();
         }
         "Walks one header from the first identifier through the last. At most 256. The service is 22 or 1A.".to_string()
+    }
+
+    fn job_command(&self) -> Option<String> {
+        let guide = wizard::guides().get(self.jobs)?;
+        let plan = wizard::Plan {
+            target: "ADAPTER".to_string(),
+            baud: None,
+            sets: guide.sets.iter().map(|name| (*name).to_string()).collect(),
+            ranges: Vec::new(),
+            clone: true,
+            output: None,
+        };
+        Some(wizard::command_line(&plan))
     }
 
     fn draw_screens(&self, frame: &mut ratatui::Frame, area: Rect) {

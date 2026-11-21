@@ -1,6 +1,7 @@
 //! Full-screen wizard. The line shell in `wizard` stays for a pipe and for tests.
 
 mod adapter;
+mod art;
 mod confirm;
 mod menu;
 mod progress;
@@ -8,6 +9,7 @@ mod progress;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::layout::{Constraint, Layout};
 use ratatui::DefaultTerminal;
 use voltkit::wizard::{self, Plan};
 
@@ -81,16 +83,16 @@ impl App {
     }
 
     fn draw(&self, frame: &mut ratatui::Frame) {
-        let area = frame.area();
+        let body = banner_body(frame);
         match self.screen {
-            Screen::Menu => self.menu.draw(frame, area),
-            Screen::Adapter => self.adapter.draw(frame, area),
+            Screen::Menu => self.menu.draw(frame, body),
+            Screen::Adapter => self.adapter.draw(frame, body),
             Screen::Confirm => {
                 if let Some(plan) = &self.plan {
-                    confirm::draw(frame, area, plan);
+                    confirm::draw(frame, body, plan);
                 }
             }
-            Screen::Progress => self.progress.draw(frame, area),
+            Screen::Progress => self.progress.draw(frame, body),
         }
     }
 
@@ -178,8 +180,8 @@ impl App {
             super::run_capture_logged(&args, |line| {
                 progress.lines.push(line.to_string());
                 let _ = terminal.draw(|frame| {
-                    let area = frame.area();
-                    progress.draw(frame, area);
+                    let body = banner_body(frame);
+                    progress.draw(frame, body);
                 });
             })
         };
@@ -218,6 +220,17 @@ impl App {
             self.pending_stdout = Some(text);
         }
     }
+}
+
+fn banner_body(frame: &mut ratatui::Frame) -> ratatui::layout::Rect {
+    let area = frame.area();
+    if area.height < art::HEIGHT + 8 {
+        return area;
+    }
+    let [banner, body] =
+        Layout::vertical([Constraint::Length(art::HEIGHT), Constraint::Min(0)]).areas(area);
+    art::draw(frame, banner);
+    body
 }
 
 fn plan_from(choice: &menu::MenuChoice, ready: &adapter::Ready) -> Result<Plan, String> {

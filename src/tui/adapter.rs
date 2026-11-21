@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
@@ -92,11 +92,7 @@ impl Adapter {
             "enter prints it",
             self.field == 2,
         ));
-        if !self.error.is_empty() {
-            lines.push(
-                Line::from(self.error.clone()).style(Style::new().fg(ratatui::style::Color::Red)),
-            );
-        }
+        lines.push(self.status_line());
         frame.render_widget(
             Paragraph::new(Text::from(lines))
                 .block(Block::bordered().title("Where is the adapter?"))
@@ -107,6 +103,14 @@ impl Adapter {
             Paragraph::new("Tab moves. Enter continues. Esc back.").style(Style::new().dim()),
             footer,
         );
+    }
+
+    fn status_line(&self) -> Line<'static> {
+        if self.error.is_empty() {
+            Line::from(address_hint(&self.target, &self.output)).style(Style::new().dim())
+        } else {
+            Line::from(self.error.clone()).style(Style::new().fg(Color::Red))
+        }
     }
 
     fn asks_baud(&self) -> bool {
@@ -197,6 +201,32 @@ impl Adapter {
             output,
         }))
     }
+}
+
+fn address_hint(target: &str, output: &str) -> &'static str {
+    let target = target.trim();
+    let com = target.to_ascii_uppercase().starts_with("COM");
+    if target.is_empty() {
+        "A host and port, such as 192.168.0.10:35000, or a COM port such as COM5."
+    } else if !target.contains(':') && !com {
+        "The address needs a colon and a port."
+    } else if com {
+        com_port_hint()
+    } else if output.trim().is_empty() {
+        "The profile is printed after quit."
+    } else {
+        "A path is written outside the repository."
+    }
+}
+
+#[cfg(windows)]
+fn com_port_hint() -> &'static str {
+    "Baud is optional. Enter keeps 115200."
+}
+
+#[cfg(not(windows))]
+fn com_port_hint() -> &'static str {
+    "A COM port is Windows only. Baud is optional. Enter keeps 115200."
 }
 
 fn field_line(label: &str, value: &str, hint: &str, active: bool) -> Line<'static> {
