@@ -7,7 +7,8 @@
 - Do not add a VIN literal. The check-digit test uses the worked example in the GM filings
   `gm-vin-2016` through `gm-vin-2019`, read through `primarysource vin`. The Volt card is on
   every filing. The Bolt EV card starts in 2017. Do not copy a vehicle number into the tree.
-- Do not add Bluetooth. The session and gauge commands stay on loopback and do not open a serial port. `voltkit profile` is the capture: it dials the TCP address the operator passes, and on Windows it opens the COM port they pass. `--set` and `--range` choose which reads, and the range span is at most 256. `voltkit wizard` asks which of those captures to run and then runs the same reads. In a terminal that question is a full-screen UI; a pipe keeps the line prompts. It still sends only reads.
+- Do not add Bluetooth. A BLE OBDLink, including an MX that advertises the FFF0 serial service, is `obd-bridge` in front of the same TCP socket. The session and gauge commands stay on loopback and do not open a serial port. `voltkit profile` is the capture: it dials the TCP address the operator passes, and on Windows it opens the COM port they pass. `--set` and `--range` choose which reads, and the range span is at most 256. `voltkit wizard` asks which of those captures to run and then runs the same reads. In a terminal that question is a full-screen UI; a pipe keeps the line prompts. It still sends only reads.
+- Do not depend on `fakeobd`, `obd-bridge`, `spskit`, or `vcxtoolkit`. The handoff is a TCP address, a profile file, or a saved module read. Do not add a `PassThru*` export or a `PassThruSupport.04.04` writer. SAE J2534 is not in primarysource.
 - `ATSP6` means ELM protocol 6 (ISO 15765-4 CAN, 11-bit, 500 kbaud). Do not describe it as
   ISO 15765-2.
 - Scan headers come from the 2026-11-14 trial. Do not invent a response id for `621`.

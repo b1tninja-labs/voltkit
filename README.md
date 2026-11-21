@@ -1,7 +1,23 @@
 # voltkit
 
-A read client for the Voltage app's Wi-Fi session. It speaks ELM327 command lines over TCP,
-each line ended by a carriage return, and stops at the `>` prompt.
+The user interface for one car. It speaks ELM327 command lines over TCP, each line ended by a
+carriage return, and stops at the `>` prompt. The peer on the other end of that socket is
+chosen here. This crate does not link the other tools, and it does not speak Bluetooth, SPS
+HTTP, or the VCX frame port itself.
+
+| Peer | What you run | What voltkit does today |
+| --- | --- | --- |
+| Lab | `fakeobd serve` on `127.0.0.1:35000`, with `profiles/volt-lab.profile` or a clone this tool wrote | `voltkit profile` and `voltkit wizard` dial that address. `--clone` prints a profile `fakeobd` can load. |
+| Bench | `obd-bridge --name OBDLink` on Windows. It republishes a BLE ELM327, including an OBDLink MX that advertises the FFF0 serial service, as ELM327-over-TCP on `127.0.0.1:35000` | Dial that same address. voltkit does not open the radio. |
+| SPS | `spskit` builds a VIT1 programming-data body from a saved module read. It does not post the body and it does not program the car | The programming job asks `parts`, `sps-extra`, `hardware`, and `identity`. Nothing here calls `spskit`, and there is no `fakesps` peer yet. |
+| Dongle | `vcxtoolkit` packs a VCX serial frame and, on Windows, can open the USB serial port | Not wired. A registered J2534 DLL is not built in `vcxtoolkit` or here. The direct frame library is the path that exists. The fifteen `PassThru*` exports stay unbuilt until SAE J2534 is imported into primarysource. |
+
+`gattmirror` is the Android-emulator HCI mirror. It is not this TCP peer.
+
+`$27` is refused before it is written. The only diagnostic services the socket will carry are
+`01`, `03`, `1A`, and `22`. A capture from a car is gitignored (`*.profile`, `profiles/`,
+`captures/`, and a new file under `scans/`). The two tracked logs are the fakeobd loopback
+capture.
 
 The reset-and-format sequence is the one the 2026-11-14 trial sent, and each command is an
 ELM327 datasheet command: `ATZ`, `ATL0`, `ATH0`, `ATS0`, `ATSP6`, `ATE0`, `ATCAF1`. `ATSP6` is
@@ -13,9 +29,6 @@ on `7DF` with headers on, and the 29 `$22` data identifiers, each with the heade
 Header `241` is the only one
 the trial paired with a receive address (`ATCRA641`). `2889` is also asked at `621`, which has
 no recorded response id. The raw single-wire frame from that trial is not sent.
-
-`$27` is refused before it is written. The only diagnostic services the socket will carry are
-`01`, `03`, `1A`, and `22`. There is no Bluetooth path and no write service.
 
 A 17-character check against the Chevrolet Volt and Bolt EV pages of GM's 2016–2019 NHTSA
 filings lives in `vin`. Those pages are `vin:gm-vin-2016` through `vin:gm-vin-2019` in
@@ -86,6 +99,6 @@ Pushing a tag such as `v0.1.0` runs `.github/workflows/release.yml`. The tag mat
 - `voltkit-x86_64-pc-windows-msvc.exe`, linked with the static CRT, so the machine does not need the Visual C++ redistributable
 - `voltkit-x86_64-unknown-linux-gnu`
 
-`SHA256SUMS` is attached beside them. A pull request, and a push to `main`, runs the same three checks in `.github/workflows/ci.yml` and does not publish a release.
+`SHA256SUMS` is attached beside them. A pull request, and any push, runs the same three checks in `.github/workflows/ci.yml` and does not publish a release. The repository has no `main` branch. The default branch is the one GitHub names.
 
 License: MIT OR Apache-2.0.

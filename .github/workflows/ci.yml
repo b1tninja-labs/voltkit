@@ -1,8 +1,8 @@
 name: ci
 
 on:
+  # There is no main branch. A push to the default branch, and to a working branch, is the run.
   push:
-    branches: [main]
   pull_request:
 
 permissions:
