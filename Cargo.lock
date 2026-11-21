@@ -1572,6 +1572,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f20bdbfc9915686faa18fb5bbe8b4552778505defbf9f12289beefbc44092a6"
 
 [[package]]
+name = "udskit"
+version = "0.1.0"
+
+[[package]]
 name = "unescaper"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1639,6 +1643,7 @@ dependencies = [
  "crossterm",
  "ratatui",
  "serialport",
+ "udskit",
 ]
 
 [[package]]

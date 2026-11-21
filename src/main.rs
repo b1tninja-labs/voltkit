@@ -202,7 +202,10 @@ fn run_capture_logged(
         match payload(&line, &reply.lines) {
             Some(bytes) => {
                 log(&format!("= {}", hex_spaced(&bytes)));
-                if bytes.first() == Some(&0x43) && row.service == 0x03 {
+                // Mode `03` answers with the request SID raised by `0x40` (so `0x43`), the
+                // positive-response offset `udskit::services` owns.
+                let mode03_positive = udskit::services::positive_response_sid(row.service).ok();
+                if row.service == 0x03 && bytes.first().copied() == mode03_positive {
                     answered += 1;
                 } else if let Some(note) = profile_note(row, &bytes) {
                     answered += 1;

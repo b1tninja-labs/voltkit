@@ -79,14 +79,13 @@ fn field_line(id: u16, payload: Option<&[u8]>) -> String {
 }
 
 fn scaled(id: u16, bytes: &[u8]) -> Option<String> {
-    if bytes.first() != Some(&0x62) || bytes.len() < 3 {
-        return None;
-    }
-    let got = u16::from_be_bytes([bytes[1], bytes[2]]);
+    // The `0x62` ReadDataByIdentifier positive response and its DID/value split live in
+    // `udskit::did`; this function only scales the value bytes that come back.
+    let (got, value) = udskit::did::parse_read_response(bytes).ok()?;
     if got != id {
         return None;
     }
-    let data = &bytes[3..];
+    let data = value.as_slice();
     match id {
         0x002F => Some(format!(
             "{id:04X} {}",

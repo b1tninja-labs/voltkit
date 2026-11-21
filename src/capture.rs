@@ -254,9 +254,12 @@ pub fn clone_profile(reads: &[Read]) -> String {
     let mut seen = std::collections::BTreeSet::new();
     let mut grouped: Vec<(u16, Vec<String>)> = Vec::new();
     let mut notes = Vec::new();
+    // Mode `03` answers positively with the request SID raised by `0x40` (so `0x43`), the
+    // offset `udskit::services` owns.
+    let mode03_positive = udskit::services::positive_response_sid(0x03).ok();
     for read in reads {
         if read.row.service == 0x03 {
-            if read.data.first() == Some(&0x43)
+            if read.data.first().copied() == mode03_positive
                 && seen.insert((read.row.header, read.row.service, read.row.identifier))
             {
                 let hex = read
@@ -385,17 +388,16 @@ fn hardware_rows() -> Vec<ScanRow> {
     rows
 }
 
+/// The receive id the trial recorded for a GMLAN physical header, or `None`.
+///
+/// For the GMLAN headers the capture names, the response id is the request id plus `0x400`
+/// (`udskit::gmlan::response_id`): `0x241` answers on `0x641`. OBD `0x7Ex` headers keep the
+/// adapter's default receive filter, so they stay `None`.
 fn recorded_receive(header: u16) -> Option<u16> {
     match header {
-        0x241 => Some(0x641),
-        0x242 => Some(0x642),
-        0x244 => Some(0x644),
-        0x24B => Some(0x64B),
-        0x24C => Some(0x64C),
-        0x251 => Some(0x651),
-        0x255 => Some(0x655),
-        0x257 => Some(0x657),
-        0x258 => Some(0x658),
+        0x241 | 0x242 | 0x244 | 0x24B | 0x24C | 0x251 | 0x255 | 0x257 | 0x258 => {
+            udskit::gmlan::response_id(header).ok()
+        }
         _ => None,
     }
 }
@@ -407,7 +409,9 @@ fn recorded_receive(header: u16) -> Option<u16> {
 fn rule_a_note(receive: Option<u16>, data: Option<&[u8]>) -> Option<String> {
     let response = receive.filter(|id| (0x641..=0x65F).contains(id))?;
     let device = *data?.first()?;
-    let request = (response & 0xFF) | 0x200;
+    // The request id is the response id less the GMLAN `+0x400` offset (`udskit::gmlan`):
+    // `0x641` came from a request on `0x241`.
+    let request = response - udskit::gmlan::GMLAN_RESPONSE_OFFSET;
     Some(format!(
         "    # device {device:02X} response {response:03X} request {request:03X}"
     ))
