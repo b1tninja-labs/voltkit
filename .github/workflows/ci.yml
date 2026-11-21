@@ -23,14 +23,30 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: voltkit
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: voltkit
+
+      # voltkit depends on the sibling udskit crate by the path `../udskit`, the same layout
+      # the D:\code workspace uses locally. Check out udskit's default branch beside voltkit so
+      # the path dependency resolves. Both repos are public, so the default token is enough.
+      - name: check out the udskit path dependency
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/udskit
+          path: udskit
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: voltkit
 
       - name: fmt
         if: runner.os == 'Linux'
