@@ -21,10 +21,35 @@ flowchart TD
 ## Commands
 
 ```text
+voltkit wizard
 voltkit profile --list
 voltkit profile HOST:PORT [--set NAME]... [--range HEADER 22|1A START END]... [--clone]
 voltkit profile COMn [--baud 115200] [--set NAME]... [--range HEADER 22|1A START END]... [--clone]
 ```
+
+`voltkit wizard` is the guided shell. It asks which capture to run, then the adapter address, then prints the `profile` command it will use. Nothing is sent until the answer is yes. In a terminal the same steps fill the screen. A pipe keeps the line prompts, which is what the tests drive.
+
+```mermaid
+flowchart TD
+  menu["What do you want to do?"]
+  lab["Lab profile"]
+  prog["Parts and hardware"]
+  here["Which other modules answer"]
+  screen["One screen"]
+  range["A range on one header"]
+  confirm{"Run this?"}
+  sent["The same reads as voltkit profile"]
+  idle["Nothing was sent"]
+  menu --> lab --> confirm
+  menu --> prog --> confirm
+  menu --> here --> confirm
+  menu --> screen --> confirm
+  menu --> range --> confirm
+  confirm -->|yes| sent
+  confirm -->|no| idle
+```
+
+The lab job is `--set all --clone`. The programming job is `--set parts --set sps-extra --set hardware --set identity --clone`. Presence, one named screen, and a range are the other three. A COM port asks for the baud, and enter keeps 115200. The profile is printed here, or written to a path outside this repository. The adapter dialogue stays on the side. `$27` is still refused before a socket is opened.
 
 `--list` prints the set names and does not open a socket. With no `--set` and no `--range`, the command runs `all`. `--clone` writes the lab profile on stdout and the dialogue on stderr. Redirect stdout to a file outside the repository. A capture from a car contains that car's module bytes.
 

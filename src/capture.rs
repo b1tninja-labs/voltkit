@@ -159,6 +159,47 @@ pub fn capture_set(name: &str) -> Option<Vec<ScanRow>> {
     Some(rows)
 }
 
+/// The rows for the named sets and ranges, in the order they were asked.
+///
+/// An empty request is the lab profile. The same header, service, and identifier
+/// is kept once. `$27` is refused by [`range_rows`] before a socket exists.
+///
+/// # Errors
+///
+/// Returns a message when a set name is unknown, a range is refused, or nothing
+/// remains to ask.
+pub fn select_rows(
+    sets: &[String],
+    ranges: &[(u16, u8, u16, u16)],
+) -> Result<Vec<ScanRow>, String> {
+    if sets.is_empty() && ranges.is_empty() {
+        return Ok(profile_table());
+    }
+    let mut rows = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for name in sets {
+        let Some(set) = capture_set(name) else {
+            return Err(format!("unknown set {name}; voltkit profile --list"));
+        };
+        for row in set {
+            if seen.insert((row.header, row.service, row.identifier)) {
+                rows.push(row);
+            }
+        }
+    }
+    for (header, service, start, end) in ranges {
+        for row in range_rows(*header, *service, *start, *end)? {
+            if seen.insert((row.header, row.service, row.identifier)) {
+                rows.push(row);
+            }
+        }
+    }
+    if rows.is_empty() {
+        return Err("the capture has no reads".to_string());
+    }
+    Ok(rows)
+}
+
 /// One header, one service, inclusive.
 ///
 /// `$22` identifiers are 16-bit. `$1A` identifiers are one byte. The span is at

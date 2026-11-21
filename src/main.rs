@@ -1,13 +1,18 @@
 //! Print a Voltage read session, the six scaled gauge fields, or a profile capture.
 
+mod tui;
+
+use std::path::PathBuf;
 use std::process::ExitCode;
+
 use voltkit::{
-    capture_set, clone_profile, exchange_gauges, hex_spaced, lines_for, payload, profile_note,
-    profile_table, range_rows, session_lines, split_reply, Read, Session, SETS,
+    clone_profile, exchange_gauges, hex_spaced, lines_for, payload, profile_note, select_rows,
+    session_lines, split_reply, Read, Session, SETS,
 };
 
 const USAGE: &str = "\
-usage: voltkit HOST:PORT
+usage: voltkit wizard
+       voltkit HOST:PORT
        voltkit gauges --host 127.0.0.1:PORT
        voltkit profile --list
        voltkit profile TARGET [--set NAME]... [--range HEADER 22|1A START END]... [--clone]
@@ -28,6 +33,15 @@ fn run() -> Result<(), String> {
     let Some(first) = args.next() else {
         return Err(USAGE.to_string());
     };
+    if first == "wizard" {
+        if args.next().is_some() {
+            return Err(USAGE.to_string());
+        }
+        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+            return tui::run();
+        }
+        return voltkit::wizard::run(|plan| run_capture(&profile_args(plan)));
+    }
     if first == "gauges" {
         return gauges(args);
     }
@@ -76,6 +90,7 @@ struct ProfileArgs {
     ranges: Vec<(u16, u8, u16, u16)>,
     clone: bool,
     list: bool,
+    output: Option<PathBuf>,
 }
 
 fn profile(args: impl Iterator<Item = String>) -> Result<(), String> {
@@ -88,11 +103,52 @@ fn profile(args: impl Iterator<Item = String>) -> Result<(), String> {
             return Ok(());
         }
     }
-    let Some(target) = parsed.target else {
+    run_capture(&parsed)
+}
+
+fn profile_args(plan: &voltkit::wizard::Plan) -> ProfileArgs {
+    ProfileArgs {
+        target: Some(plan.target.clone()),
+        baud: plan.baud,
+        sets: plan.sets.clone(),
+        ranges: plan.ranges.clone(),
+        clone: plan.clone,
+        list: false,
+        output: plan.output.clone(),
+    }
+}
+
+struct CaptureReport {
+    answered: u32,
+    negative: u32,
+    silent: u32,
+    profile: Option<String>,
+}
+
+fn run_capture(parsed: &ProfileArgs) -> Result<(), String> {
+    let report = run_capture_logged(parsed, |line| emit(parsed.clone, line))?;
+    finish_clone(parsed, report)
+}
+
+fn run_capture_logged(
+    parsed: &ProfileArgs,
+    mut log: impl FnMut(&str),
+) -> Result<CaptureReport, String> {
+    let Some(target) = parsed.target.as_deref() else {
         return Err(USAGE.to_string());
     };
-    let rows = selected_rows(&parsed.sets, &parsed.ranges)?;
-    let mut session = open_profile(&target, parsed.baud)?;
+    if let Some(path) = &parsed.output {
+        if path.is_dir() {
+            return Err(format!("{} is a directory", path.display()));
+        }
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                return Err(format!("directory {} does not exist", parent.display()));
+            }
+        }
+    }
+    let rows = select_rows(&parsed.sets, &parsed.ranges)?;
+    let mut session = open_profile(target, parsed.baud)?;
     let mut reads = rows.iter();
     let mut captured = Vec::new();
     let mut answered = 0_u32;
@@ -100,9 +156,9 @@ fn profile(args: impl Iterator<Item = String>) -> Result<(), String> {
     let mut silent = 0_u32;
     for line in lines_for(&rows) {
         let reply = session.exchange(&line).map_err(|e| e.to_string())?;
-        emit(parsed.clone, &format!("> {line}"));
+        log(&format!("> {line}"));
         for item in split_reply(&reply.raw) {
-            emit(parsed.clone, &format!("< {item}"));
+            log(&format!("< {item}"));
         }
         let adapter = line.len() >= 2 && line.as_bytes()[..2].eq_ignore_ascii_case(b"AT");
         if adapter {
@@ -113,12 +169,12 @@ fn profile(args: impl Iterator<Item = String>) -> Result<(), String> {
         };
         match payload(&line, &reply.lines) {
             Some(bytes) => {
-                emit(parsed.clone, &format!("= {}", hex_spaced(&bytes)));
+                log(&format!("= {}", hex_spaced(&bytes)));
                 if bytes.first() == Some(&0x43) && row.service == 0x03 {
                     answered += 1;
                 } else if let Some(note) = profile_note(row, &bytes) {
                     answered += 1;
-                    emit(parsed.clone, &note);
+                    log(&note);
                 } else {
                     negative += 1;
                 }
@@ -130,11 +186,44 @@ fn profile(args: impl Iterator<Item = String>) -> Result<(), String> {
             None => silent += 1,
         }
     }
-    if parsed.clone {
-        eprintln!("# answered {answered}, negative {negative}, silent {silent}");
-        print!("{}", clone_profile(&captured));
+    let profile = if parsed.clone {
+        Some(clone_profile(&captured))
+    } else {
+        None
+    };
+    Ok(CaptureReport {
+        answered,
+        negative,
+        silent,
+        profile,
+    })
+}
+
+fn finish_clone(parsed: &ProfileArgs, report: CaptureReport) -> Result<(), String> {
+    if !parsed.clone {
+        return Ok(());
+    }
+    eprintln!(
+        "# answered {}, negative {}, silent {}",
+        report.answered, report.negative, report.silent
+    );
+    let Some(text) = report.profile else {
+        return Ok(());
+    };
+    if let Some(path) = &parsed.output {
+        if let Err(err) = write_profile(path, &text) {
+            print!("{text}");
+            return Err(err);
+        }
+        eprintln!("# wrote {}", path.display());
+    } else {
+        print!("{text}");
     }
     Ok(())
+}
+
+fn write_profile(path: &std::path::Path, text: &str) -> Result<(), String> {
+    std::fs::write(path, text).map_err(|err| format!("could not write {}: {err}", path.display()))
 }
 
 fn emit(clone: bool, line: &str) {
@@ -145,38 +234,6 @@ fn emit(clone: bool, line: &str) {
     }
 }
 
-fn selected_rows(
-    sets: &[String],
-    ranges: &[(u16, u8, u16, u16)],
-) -> Result<Vec<voltkit::ScanRow>, String> {
-    if sets.is_empty() && ranges.is_empty() {
-        return Ok(profile_table());
-    }
-    let mut rows = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
-    for name in sets {
-        let Some(set) = capture_set(name) else {
-            return Err(format!("unknown set {name}; voltkit profile --list"));
-        };
-        for row in set {
-            if seen.insert((row.header, row.service, row.identifier)) {
-                rows.push(row);
-            }
-        }
-    }
-    for (header, service, start, end) in ranges {
-        for row in range_rows(*header, *service, *start, *end)? {
-            if seen.insert((row.header, row.service, row.identifier)) {
-                rows.push(row);
-            }
-        }
-    }
-    if rows.is_empty() {
-        return Err("the capture has no reads".to_string());
-    }
-    Ok(rows)
-}
-
 fn parse_profile(mut args: impl Iterator<Item = String>) -> Result<ProfileArgs, String> {
     let mut parsed = ProfileArgs {
         target: None,
@@ -185,6 +242,7 @@ fn parse_profile(mut args: impl Iterator<Item = String>) -> Result<ProfileArgs, 
         ranges: Vec::new(),
         clone: false,
         list: false,
+        output: None,
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {

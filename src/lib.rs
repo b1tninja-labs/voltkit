@@ -3,7 +3,8 @@
 //! Each line is terminated by a carriage return. The session is the reset-and-format
 //! sequence from the ELM327 datasheet, then the `$1A` identifiers, mode `03` on `7DF`,
 //! and the `$22` data identifiers from the 2026-11-14 Voltage trial. `profile` reads the lab profile's
-//! identifiers from the adapter address the operator passes. `gauges` reads six of those `$22`
+//! identifiers from the adapter address the operator passes. `wizard` asks which of those
+//! captures to run, then runs it. `gauges` reads six of those `$22`
 //! identifiers and prints the scaled fields. SecurityAccess (`$27`) and write
 //! services are refused before any byte is written. There is no Bluetooth path.
 
@@ -14,8 +15,9 @@ mod elm;
 mod gauges;
 mod scan;
 mod vin;
+pub mod wizard;
 
-pub use capture::{capture_set, clone_profile, range_rows, Read, SETS};
+pub use capture::{capture_set, clone_profile, range_rows, select_rows, Read, SETS};
 
 pub use elm::{hex_spaced, payload, split_reply, Error, Line, Refuse, Reply, Session};
 pub use gauges::{exchange_gauges, gauge_session_lines};

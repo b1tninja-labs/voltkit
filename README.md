@@ -46,11 +46,14 @@ slice. There is no separate `fakevolt` or `obdkit` profile format: the clone is
 the lab profile, and this client is the reader.
 
 ```bash
+cargo run -- wizard
 cargo run -- profile --list
 cargo run -- profile 192.168.0.10:35000 --set charger --set climate --clone
 cargo run -- profile COM5 --set parts --clone
 cargo run -- profile COM5 --set cells --clone
 ```
+
+`voltkit wizard` asks which capture to run, then the adapter address, then shows the `profile` command it will use. Nothing is sent until the answer is yes. In a terminal this is a full-screen UI. A pipe keeps the line prompts. The jobs are the lab profile, the programming read (`parts`, `sps-extra`, `hardware`, and `identity`), the nine-header presence probe, one screen, or a range. A profile can be printed here or written to a path outside this repository. When the screen captured it, the profile is printed after you quit.
 
 The gauge command sends six of those `$22` reads and prints the scaled fields. It dials
 only when `--host` is present, and only when that address is `127.0.0.1`.
