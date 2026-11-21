@@ -197,12 +197,7 @@ pub fn clone_profile(reads: &[Read]) -> String {
                     .map(|byte| format!("{byte:02X}"))
                     .collect::<String>();
                 notes.push(format!("# {hex}"));
-                if read.row.receive.is_none() {
-                    notes.push(format!(
-                        "# header {:03X} has no recorded response id",
-                        read.row.header
-                    ));
-                }
+                notes.push(unmapped_header(read.row.header, read.row.receive));
             }
             continue;
         }
@@ -231,10 +226,7 @@ pub fn clone_profile(reads: &[Read]) -> String {
             }
         } else {
             notes.push(format!("# {line}"));
-            notes.push(format!(
-                "# header {:03X} has no recorded response id",
-                read.row.header
-            ));
+            notes.push(unmapped_header(read.row.header, read.row.receive));
         }
     }
     let mut out = String::from(
@@ -307,6 +299,13 @@ fn recorded_receive(header: u16) -> Option<u16> {
         0x244 => Some(0x644),
         0x24C => Some(0x64C),
         _ => None,
+    }
+}
+
+fn unmapped_header(header: u16, receive: Option<u16>) -> String {
+    match receive {
+        Some(id) => format!("# header {header:03X} answers on {id:03X} and has no lab ecu line"),
+        None => format!("# header {header:03X} has no recorded response id"),
     }
 }
 
@@ -456,6 +455,10 @@ mod tests {
                 data: vec![0x62, 0x28, 0x89, 0x00],
             },
             Read {
+                row: gmlan(0x242, Some(0x642), 0x90),
+                data: vec![0x5A, 0x90, 0x11],
+            },
+            Read {
                 row: ScanRow {
                     header: 0x7DF,
                     receive: None,
@@ -484,12 +487,18 @@ mod tests {
         assert!(!text.contains("did 000D"));
         assert!(text.contains("# did 2889 00"));
         assert!(text.contains("header 621 has no recorded response id"));
+        assert!(text.contains("# lid 90 11"));
+        assert!(text.contains("header 242 answers on 642 and has no lab ecu line"));
+        assert!(!text.contains("req=242"));
         assert!(text.contains("# 43010A7E"));
         assert!(text.contains("header 7DF has no recorded response id"));
         assert!(!text.contains("dtc"));
         assert!(!text.contains("7F0331"));
         assert!(!text.contains("req=621"));
-        assert_eq!(text.matches("ecu ").count(), 1);
+        assert_eq!(
+            text.lines().filter(|line| line.starts_with("ecu ")).count(),
+            1
+        );
         assert!(clone_profile(&[]).contains("# no positive reply"));
     }
 }
