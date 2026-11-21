@@ -7,7 +7,7 @@ HTTP, or the VCX frame port itself.
 
 | Peer | What you run | What voltkit does today |
 | --- | --- | --- |
-| Lab | `fakeobd serve` on `127.0.0.1:35000`, with `profiles/volt-lab.profile` or a clone this tool wrote | `voltkit profile` and `voltkit wizard` dial that address. `--clone` prints a profile `fakeobd` can load. |
+| Lab | `fakeobd serve` on `127.0.0.1:35000`, with `profiles/volt-lab.profile` or a clone this tool wrote | `voltkit lab` starts `fakeobd serve --listen 127.0.0.1:35000` and dials it. The command does not pass `--profile`, a serial port, or a Bluetooth flag. `profile` and `wizard` still dial an address you pass. `--clone` prints a profile `fakeobd` can load. |
 | Bench | `obd-bridge --name OBDLink` on Windows. It republishes a BLE ELM327, including an OBDLink MX that advertises the FFF0 serial service, as ELM327-over-TCP on `127.0.0.1:35000` | Dial that same address. voltkit does not open the radio. |
 | SPS | `spskit` builds a VIT1 programming-data body from a saved module read. It does not post the body and it does not program the car | The programming job asks `parts`, `sps-extra`, `hardware`, and `identity`. Nothing here calls `spskit`, and there is no `fakesps` peer yet. |
 | Dongle | `vcxtoolkit` packs a VCX serial frame and, on Windows, can open the USB serial port | Not wired. A registered J2534 DLL is not built in `vcxtoolkit` or here. The direct frame library is the path that exists. The fifteen `PassThru*` exports stay unbuilt until SAE J2534 is imported into primarysource. |
@@ -44,6 +44,15 @@ cargo run -- 127.0.0.1:35000
 Point it at a loopback ELM327-over-TCP peer. Against fakeobd, that is `serve` with
 `profiles/volt-lab.profile`. The dialogue is printed to stdout: `>` request, `<` reply line,
 `=` diagnostic bytes when the reply is a hex payload.
+
+```bash
+cargo run -- lab
+```
+
+`voltkit lab` starts `fakeobd serve --listen 127.0.0.1:35000` and prints that same dialogue.
+Set `VOLTKIT_LAB_PEER` to the binary when it is not `fakeobd` on `PATH`. The process is stopped
+when the command exits. It does not open a serial port or a Bluetooth radio. `$27` is still
+refused before it is written.
 
 `voltkit profile` reads the identifiers the lab profile answers, plus the charger
 and climate reads traced after it. Point it at the ELM adapter on the vehicle:
@@ -87,8 +96,8 @@ divided by 64 in kilometres, and the first data byte of `434F` minus 40 in Celsi
 cargo test
 ```
 
-The tests use an in-process TCP peer. They do not open a serial port, a Bluetooth device, or a
-non-loopback address.
+The tests use an in-process TCP peer, or a stub binary `voltkit lab` launches. They do not open a
+serial port, a Bluetooth device, or a non-loopback address, and they do not need a vehicle.
 
 ## Release
 

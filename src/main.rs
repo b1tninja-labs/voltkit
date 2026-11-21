@@ -12,6 +12,7 @@ use voltkit::{
 
 const USAGE: &str = "\
 usage: voltkit wizard
+       voltkit lab
        voltkit HOST:PORT
        voltkit gauges --host 127.0.0.1:PORT
        voltkit profile --list
@@ -48,17 +49,34 @@ fn run() -> Result<(), String> {
     if first == "profile" {
         return profile(args);
     }
+    if first == "lab" {
+        if args.next().is_some() {
+            return Err(USAGE.to_string());
+        }
+        return lab();
+    }
     if args.next().is_some() || first.starts_with('-') {
         return Err(USAGE.to_string());
     }
+    let session = Session::connect(&first).map_err(|e| e.to_string())?;
+    print_session(&first, session)
+}
+
+fn lab() -> Result<(), String> {
+    let program = voltkit::lab::program(std::env::var_os(voltkit::lab::PROGRAM_ENV));
+    let mut peer = voltkit::lab::LabPeer::start(&program).map_err(|e| e.to_string())?;
+    let session = peer.dial().map_err(|e| e.to_string())?;
+    print_session(voltkit::lab::ADDRESS, session)
+}
+
+fn print_session(peer: &str, mut session: Session) -> Result<(), String> {
     println!("# voltkit");
-    println!("# peer: {first}");
-    let mut session = Session::connect(&first).map_err(|e| e.to_string())?;
+    println!("# peer: {peer}");
     for line in session_lines() {
         let reply = session.exchange(&line).map_err(|e| e.to_string())?;
         println!("> {line}");
-        for l in split_reply(&reply.raw) {
-            println!("< {l}");
+        for item in split_reply(&reply.raw) {
+            println!("< {item}");
         }
         if let Some(bytes) = payload(&line, &reply.lines) {
             println!("= {}", hex_spaced(&bytes));
