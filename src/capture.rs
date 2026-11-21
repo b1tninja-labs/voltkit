@@ -31,6 +31,27 @@ const PART_HEADERS: [(u16, Option<u16>); 5] = [
     (0x241, Some(0x641)),
 ];
 
+// Headers this capture already asks. `CB` is the hardware identifier most
+// programming rows need, and none of those rows are in `identity`.
+const HARDWARE_HEADERS: [(u16, Option<u16>); 16] = [
+    (0x7E0, None),
+    (0x7E1, None),
+    (0x7E2, None),
+    (0x7E4, None),
+    (0x7E5, None),
+    (0x7E6, None),
+    (0x7E7, None),
+    (0x241, Some(0x641)),
+    (0x242, Some(0x642)),
+    (0x244, Some(0x644)),
+    (0x24B, Some(0x64B)),
+    (0x24C, Some(0x64C)),
+    (0x251, Some(0x651)),
+    (0x255, Some(0x655)),
+    (0x257, Some(0x657)),
+    (0x258, Some(0x658)),
+];
+
 // Appendix pairs the lab profile does not already ask. Physical headers set no ATCRA.
 const PRESENCE_HEADERS: [(u16, Option<u16>); 9] = [
     (0x242, Some(0x642)),
@@ -80,6 +101,10 @@ pub const SETS: &[(&str, &str)] = &[
         "sps-extra",
         "$1A 40-4A, 60, 62, 64, 66-6A, 71, 73, 74, and 76 on the parts headers",
     ),
+    (
+        "hardware",
+        "$1A CB on every header this capture already asks, and $1A CC where identity does not",
+    ),
 ];
 
 /// The rows for `name`, or `None` when `name` is not a set.
@@ -91,6 +116,7 @@ pub fn capture_set(name: &str) -> Option<Vec<ScanRow>> {
         "parts" => return Some(part_rows()),
         "presence" => return Some(presence_rows()),
         "sps-extra" => return Some(sps_extra_rows()),
+        "hardware" => return Some(hardware_rows()),
         "hpcm" => on_header(0x7E0),
         "powertrain" => on_header(0x7E1),
         "becm" => on_header(0x7E4),
@@ -176,9 +202,10 @@ pub fn range_rows(header: u16, service: u8, start: u16, end: u16) -> Result<Vec<
 
 /// Lab profile text for the positive replies.
 ///
-/// One `ecu` block per header that has a recorded response id. A positive
-/// `$1A` `C0`–`CA` line carries the decimal of its first four data bytes, which
-/// is the part-number slice. Other headers are comments, so a missing response
+/// One `ecu` block per answered header the lab profile already names. A positive
+/// `$1A` `C0`–`CA` line, and a `$1A` `CB` line, carries the decimal of its first
+/// four data bytes. That is the part-number slice, and the same slice for the
+/// hardware identifier. Other headers are comments, so a missing response
 /// id is not invented. A positive mode `03` reply, which starts with `43`, is a
 /// comment of the raw hex. A negative reply is left out.
 #[must_use]
@@ -207,7 +234,9 @@ pub fn clone_profile(reads: &[Read]) -> String {
         if !seen.insert((read.row.header, read.row.service, read.row.identifier)) {
             continue;
         }
-        if read.row.service == 0x1A && (0xC0..=0xCA).contains(&read.row.identifier) {
+        if read.row.service == 0x1A
+            && ((0xC0..=0xCA).contains(&read.row.identifier) || read.row.identifier == 0xCB)
+        {
             if let Some(bytes) = profile_bytes(&read.row, &read.data) {
                 if bytes.len() >= 4 {
                     let n = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
@@ -293,11 +322,33 @@ fn sps_extra_rows() -> Vec<ScanRow> {
     rows
 }
 
+fn hardware_rows() -> Vec<ScanRow> {
+    let covered_cc: std::collections::BTreeSet<u16> = profile_table()
+        .into_iter()
+        .filter(|row| row.service == 0x1A && row.identifier == 0xCC)
+        .map(|row| row.header)
+        .collect();
+    let mut rows = Vec::new();
+    for (header, receive) in HARDWARE_HEADERS {
+        rows.push(gmlan(header, receive, 0xCB));
+        if !covered_cc.contains(&header) {
+            rows.push(gmlan(header, receive, 0xCC));
+        }
+    }
+    rows
+}
+
 fn recorded_receive(header: u16) -> Option<u16> {
     match header {
         0x241 => Some(0x641),
+        0x242 => Some(0x642),
         0x244 => Some(0x644),
+        0x24B => Some(0x64B),
         0x24C => Some(0x64C),
+        0x251 => Some(0x651),
+        0x255 => Some(0x655),
+        0x257 => Some(0x657),
+        0x258 => Some(0x658),
         _ => None,
     }
 }
@@ -416,7 +467,33 @@ mod tests {
             .unwrap();
         assert_eq!(request, "03");
         assert!(all.iter().all(|row| row.service != 0x01));
-        assert_eq!(SETS.len(), 14);
+        let hardware = capture_set("hardware").unwrap();
+        let covered_cc: std::collections::BTreeSet<u16> = all
+            .iter()
+            .filter(|row| row.service == 0x1A && row.identifier == 0xCC)
+            .map(|row| row.header)
+            .collect();
+        assert_eq!(
+            hardware.iter().filter(|row| row.identifier == 0xCB).count(),
+            HARDWARE_HEADERS.len()
+        );
+        for (header, receive) in HARDWARE_HEADERS {
+            assert!(hardware.iter().any(|row| {
+                row.header == header && row.identifier == 0xCB && row.receive == receive
+            }));
+            let asks_cc = hardware.iter().any(|row| {
+                row.header == header && row.identifier == 0xCC && row.receive == receive
+            });
+            assert_eq!(asks_cc, !covered_cc.contains(&header));
+        }
+        assert!(hardware.iter().all(|row| row.service == 0x1A));
+        assert!(all
+            .iter()
+            .all(|row| !(row.service == 0x1A && row.identifier == 0xCB)));
+        for (header, receive) in PRESENCE_HEADERS {
+            assert_eq!(recorded_receive(header), receive);
+        }
+        assert_eq!(SETS.len(), 15);
     }
 
     #[test]
@@ -429,6 +506,15 @@ mod tests {
         assert!(range_rows(0x7E4, 0x1A, 0xC0, 0x100).is_err());
         let wide = range_rows(0x7E7, 0x22, 0x4200, 0x42FF).unwrap();
         assert_eq!(wide.len(), 256);
+        let body = range_rows(0x242, 0x1A, 0xCB, 0xCB).unwrap();
+        assert_eq!(body[0].receive, Some(0x642));
+        assert!(range_rows(0x621, 0x22, 0x2889, 0x2889)
+            .unwrap()
+            .iter()
+            .all(|row| row.receive.is_none()));
+        assert!(range_rows(0x7E2, 0x1A, 0x90, 0x90).unwrap()[0]
+            .receive
+            .is_none());
     }
 
     #[test]
@@ -459,6 +545,10 @@ mod tests {
                 data: vec![0x5A, 0x90, 0x11],
             },
             Read {
+                row: gmlan(0x7E4, None, 0xCB),
+                data: vec![0x5A, 0xCB, 0x00, 0x00, 0x00, 0x2A],
+            },
+            Read {
                 row: ScanRow {
                     header: 0x7DF,
                     receive: None,
@@ -484,6 +574,7 @@ mod tests {
         assert!(text.contains("ecu BECM req=7E4 resp=7EC functional=yes pad=00 latency=4"));
         assert!(text.contains("did 4532 0001"));
         assert!(text.contains("lid C1 0000002A    # decimal 42"));
+        assert!(text.contains("lid CB 0000002A    # decimal 42"));
         assert!(!text.contains("did 000D"));
         assert!(text.contains("# did 2889 00"));
         assert!(text.contains("header 621 has no recorded response id"));

@@ -11,7 +11,7 @@ flowchart TD
   adapter["ELM327 adapter"]
   all["profile --set all --clone"]
   lab["fakeobd profile"]
-  parts["profile --set parts --set sps-extra"]
+  parts["profile --set parts --set sps-extra --set hardware"]
   saved["saved read for each controller the catalog names"]
   named["getProgrammingData names the blobs"]
   adapter --> all --> lab
@@ -28,13 +28,13 @@ voltkit profile COMn [--baud 115200] [--set NAME]... [--range HEADER 22|1A START
 
 `--list` prints the set names and does not open a socket. With no `--set` and no `--range`, the command runs `all`. `--clone` writes the lab profile on stdout and the dialogue on stderr. Redirect stdout to a file outside the repository. A capture from a car contains that car's module bytes.
 
-`--range` walks one 11-bit header. The service is `22` or `1A`. The span is at most 256 identifiers. `$1A` identifiers are one byte. Service `$27` is refused before a socket is opened. Headers `241`, `244`, and `24C` set the response filters the lab profile already records (`641`, `644`, `64C`). Any other header, including `621`, leaves the filter unset. That filter rule is for `--range`. The `presence` set sets the appendix response ids on its own headers.
+`--range` walks one 11-bit header. The service is `22` or `1A`. The span is at most 256 identifiers. `$1A` identifiers are one byte. Service `$27` is refused before a socket is opened. The response filter is the same appendix pair `presence` uses, plus the lab pairs: `241`/`641`, `242`/`642`, `244`/`644`, `24B`/`64B`, `24C`/`64C`, `251`/`651`, `255`/`655`, `257`/`657`, and `258`/`658`. `621`, `7DF`, and the physical headers leave the filter unset.
 
 ## Sets
 
 | Set | What it asks |
 | --- | --- |
-| `all` | The lab profile capture, including mode `03` on `7DF`. It does not include `parts`, `presence`, or `sps-extra`. |
+| `all` | The lab profile capture, including mode `03` on `7DF`. It does not include `parts`, `presence`, `sps-extra`, or `hardware`. |
 | `scan` | The 2026-11-14 trial only, including mode `03` on `7DF`. |
 | `hpcm` | Header `7E0`. |
 | `powertrain` | Header `7E1`. |
@@ -48,12 +48,15 @@ voltkit profile COMn [--baud 115200] [--set NAME]... [--range HEADER 22|1A START
 | `parts` | `$1A` `C0` through `CA` on `7E0`, `7E1`, `7E4`, `7E7`, and `241`. |
 | `presence` | `$1A` `90` on `242`, `24B`, `251`, `255`, `257`, `258`, `7E2`, `7E5`, and `7E6`. |
 | `sps-extra` | `$1A` `40` through `4A`, `60`, `62`, `64`, `66` through `6A`, `71`, `73`, `74`, and `76` on the `parts` headers. |
+| `hardware` | `$1A` `CB` on every header this capture already asks, and `$1A` `CC` on the headers where `identity` does not already ask it. |
 
 `cells` follows the lab table through `4240` and then the Voltage catalog tail `4241` through `4250`. That catalog calls `4202` through `4250` battery cell voltages and config, and it does not name a header. `7E7` is the cell ECU the lab profile already uses for `4181` through `4240`.
 
 `presence` asks `$1A` `90` once on each of those headers. `242` receives `642`, `24B` receives `64B`, `251` receives `651`, `255` receives `655`, `257` receives `657`, and `258` receives `658`. `7E2`, `7E5`, and `7E6` set no `ATCRA`. The appendix says those physical headers use the default response eight above the request. `100`, `101`, `247`, `252`, `621`, and `7DF` are not in this set. Heap tokens `ATSH2410`, `ATSH7E00`, `ATSH7E40`, and `ATCRA6410` are not headers.
 
 `sps-extra` uses the same five headers as `parts`: `7E0`, `7E1`, `7E4`, and `7E7` with no receive address, and `241` receiving `641`. Each listed identifier is asked once per header. `C0` stays in `parts`. `90`, `CB`, and `CC` are not in `sps-extra`.
+
+`hardware` asks `$1A` `CB` once on `7E0`, `7E1`, `7E2`, `7E4`, `7E5`, `7E6`, `7E7`, `241`, `242`, `244`, `24B`, `24C`, `251`, `255`, `257`, and `258`. The response filters are the pairs above. `7E0` through `7E7` set no `ATCRA`. It also asks `$1A` `CC` on `244` and on the nine `presence` headers, because `identity` already asks `CC` on `7E0`, `7E1`, `7E4`, `7E7`, `241`, and `24C`. `621` and `7DF` are not in this set.
 
 ## The clone
 
@@ -63,7 +66,7 @@ The file starts with `s3 5000`. An answered header becomes one `ecu` line when t
 
 A header the lab profile does not name is a comment. `621` and mode `03` on `7DF` have no recorded response id, and the comment says so. A `presence` header that has a response id, such as `242` receiving `642`, comments the `lid` line and names that response id. It does not add an `ecu` line.
 
-For `$1A` `C0` through `CA`, when at least four data bytes came back, the line comments the decimal of those four bytes. That is the part-number slice: the identifier echo is not included, and the next four bytes are an unsigned integer, first byte most significant. In `spskit`, `format0_decimal` takes the same four bytes from a longer buffer whose byte 2 is the service and whose start byte 1 is response byte 4. A `$7F` in that buffer writes no number. A short payload is not a part number.
+For `$1A` `C0` through `CA`, and for `$1A` `CB`, when at least four data bytes came back, the line comments the decimal of those four bytes. That is the part-number slice, and the same slice for the hardware identifier: the identifier echo is not included, and the next four bytes are an unsigned integer, first byte most significant. In `spskit`, `format0_decimal` takes the same four bytes from a longer buffer whose byte 2 is the service and whose start byte 1 is response byte 4. A `$7F` in that buffer writes no number. A short payload is not a part number. `$CC` stays hex. K17's hardware field is the string from that read, so a decimal comment would name a different value.
 
 `fakeobd serve --profile FILE` parses this file. A sample clone was loaded on `127.0.0.1:35991` and read back: `224532` returned `did 4532 0001`, `1AC1` returned `lid C1` with decimal 42, and `224250` returned `did 4250 BBE0`. That server was stopped. The sample used synthetic bytes, not a car.
 
@@ -71,7 +74,7 @@ There is no second profile format for a project named fakevolt or obdkit. The cl
 
 ## Voltage emulation
 
-`voltkit profile COMn --set all --clone` is the emulation pass. It covers the 2026-11-14 trial and the lab profile: powertrain on `7E1`, HPCM2 on `7E0`, BECM and the charger screen on `7E4`, climate and the other body reads on `241`, the cluster on `244`, the `$1A` placeholders on `24C`, the cell table on `7E7`, and mode `03` on `7DF`. The command also has `presence` and `sps-extra`. Those two sets stay outside `all`, as `parts` does.
+`voltkit profile COMn --set all --clone` is the emulation pass. It covers the 2026-11-14 trial and the lab profile: powertrain on `7E1`, HPCM2 on `7E0`, BECM and the charger screen on `7E4`, climate and the other body reads on `241`, the cluster on `244`, the `$1A` placeholders on `24C`, the cell table on `7E7`, and mode `03` on `7DF`. The command also has `presence`, `sps-extra`, and `hardware`. Those three sets stay outside `all`, as `parts` does.
 
 These reads are still outside that pass:
 
@@ -79,7 +82,7 @@ These reads are still outside that pass:
 - No trial log records an OBD mode `01` PID. The request atlas says the app sends no mode `01` request. The hub audit counted two allowed lines whose service byte was `01`, and those request bytes were not kept. `01FFFFFFFF000000` on `621` is a single-wire wake, not a PID. The command does not send a mode `01` PID.
 - Of the 115 catalog `$22` identifiers, 113 are already asked by `profile_table` or by `volt-lab.profile`. The two with no header in either file are `5247` and `5248`. All 70 catalog `42xx` identifiers sit inside the `7E7` sweep `4181` through `4250`.
 - The Voltage appendix pairs these request headers with response ids: `241`/`641`, `242`/`642`, `244`/`644`, `24B`/`64B`, `24C`/`64C`, `251`/`651`, `255`/`655`, `257`/`657`, `258`/`658`. Physical headers `7E0` through `7E7`, skipping `7E3`, use the default response eight above the request, and the appendix names no separate `ATCRA` for them. Headers with no paired response id are `100`, `101`, `247`, `252`, `621`, and `7DF`. `247` and `252` have filters `547` and `552` only. Heap strings `ATSH2410`, `ATSH7E00`, `ATSH7E40`, and `ATCRA6410` are a real header with the next digit glued on. They are not extra addresses.
-- This command sets response filters for `241`/`641`, `244`/`644`, and `24C`/`64C`, and `presence` adds `242`/`642`, `24B`/`64B`, `251`/`651`, `255`/`655`, `257`/`657`, and `258`/`658`. It asks `7E0`, `7E1`, `7E2`, `7E4`, `7E5`, `7E6`, `7E7`, `7DF`, and `621`. `7E2`, `7E5`, and `7E6` leave the filter unset. It does not ask `100`, `101`, `247`, or `252`.
+- This command sets response filters for `241`/`641`, `242`/`642`, `244`/`644`, `24B`/`64B`, `24C`/`64C`, `251`/`651`, `255`/`655`, `257`/`657`, and `258`/`658`. `--range` uses that same list. It asks `7E0`, `7E1`, `7E2`, `7E4`, `7E5`, `7E6`, `7E7`, `7DF`, and `621`. `7E2`, `7E5`, and `7E6` leave the filter unset. It does not ask `100`, `101`, `247`, or `252`.
 - The single-wire wake frames from the trial are not module data, and they are not sent.
 
 Service `$27` and the write services stay out. The simulator refuses them. The app continued after that refusal, so emulation of that moment is the refusal, not a captured seed.
@@ -125,7 +128,7 @@ K17's hardware length is 0, so `ssecuhn` stays the string from `$CC`. The other 
 
 K16 is in the catalog, device id 205, request method 583, and it is not in the table. Its part list is the string `P;C0,C1,C2` with length 0, and the builder does not split it. `C0` appears in that string and in no pairable rule. K73 request methods 520 and 566 copy three bytes from `$81` and do not turn that copy into `ssecuhn`. Method 601 is the K73 row above.
 
-`voltkit profile COMn --set parts --set sps-extra --clone` asks `$1A` `C0` through `CA`, then `40` through `4A`, `60`, `62`, `64`, `66`, `67`, `68`, `69`, `6A`, `71`, `73`, `74`, and `76`, on `7E0`, `7E1`, `7E4`, `7E7`, and `241`. `sps-extra` does not repeat `C0`. `identity` already asks `90` and `CC` on some of those headers. `90`, `CB`, and `CC` are not in `sps-extra`. No SPS device id has a recovered CAN header, so the read cannot be aimed at a controller by its device id.
+`voltkit profile COMn --set parts --set sps-extra --set hardware --set identity --clone` asks `$1A` `C0` through `CA`, then `40` through `4A`, `60`, `62`, `64`, `66`, `67`, `68`, `69`, `6A`, `71`, `73`, `74`, and `76`, on `7E0`, `7E1`, `7E4`, `7E7`, and `241`. `sps-extra` does not repeat `C0`. `hardware` asks `CB` on the headers listed above, and `CC` where `identity` does not. `identity` asks `90` and `CC` on the lab headers. `90` is not in `sps-extra` or `hardware`. No SPS device id has a recovered CAN header, so the read cannot be aimed at a controller by its device id. The hardware decimal is the comment on a positive `CB` line. `CC` stays hex because K17 keeps that field as a string.
 
 That saved read is what lets `getProgrammingData` name each blob, its size, its download id, and the server list. Fetching the file is the following SPS call. Putting a blob on a module is a later write, and it is outside this capture.
 
