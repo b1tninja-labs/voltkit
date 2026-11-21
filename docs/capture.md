@@ -122,3 +122,14 @@ K16 is in the catalog, device id 205, request method 583, and it is not in the t
 `voltkit profile COMn --set parts --clone` asks `$1A` `C0` through `CA` on five headers. The pairable rows also need `40`, `41` through `4A`, `60`, `62`, `64`, `66`, `67`, `68`, `69`, `6A`, `71`, `73`, `74`, `76`, `90`, `CB`, and `CC`. `90`, `CB`, and `CC` are already asked on some of those headers by `identity`. The rest are not a set yet. Ask them with `--range` on a header that already answered. No SPS device id in the catalog has a recovered request header, so the range cannot be aimed at a controller by its device id.
 
 That saved read is what lets `getProgrammingData` name each blob, its size, its download id, and the server list. Fetching the file is the following SPS call. Putting a blob on a module is a later write, and it is outside this capture.
+
+## What a live `$1A` `$B0` answer would decode
+
+`5247` and `5248` stay out. They are names in the Voltage catalog, and they were not found as `$22` reads in `c6.v` or the callers next to it. No header is recorded for either one.
+
+`spsvcs.dll` fills its CAN matrix only from a live `$1A` `$B0` response. A positive reply is at least `0x0C` bytes, with byte `0x0A` equal to `5A` and byte `0x0B` equal to `B0`. `V` is the big-endian dword in bytes 5 through 8. The device id is byte `0x0C`. The request id is derived, not stored as its own byte:
+
+- When `V` is `641` through `65F`, the request id is the low byte of `V` with `0x200` set, and the response id is `V`. A decoded row would print a request in `241` through `25F` and a response in `641` through `65F` with the same low byte. The device byte is independent of that low byte. The image does not say which device byte arrives with which `V`.
+- When byte 0 is `4` and `V` is `7E8` through `7EF`, the request id is `V` minus 8, so `7E0` through `7E7`, and the response id is `V`.
+
+Any other `V` does not fill the ids. Device 40 has no static row. Expanding either range into one row per id would invent devices the DLL does not contain. This command does not send `$B0` and does not decode that reply.
