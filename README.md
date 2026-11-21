@@ -72,4 +72,15 @@ cargo test
 The tests use an in-process TCP peer. They do not open a serial port, a Bluetooth device, or a
 non-loopback address.
 
+## Release
+
+`Cargo.toml` sets `publish = false`. This crate is not published to crates.io.
+
+Pushing a tag such as `v0.1.0` runs `.github/workflows/release.yml`. The tag matches `v*.*.*`. The workflow runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` on Ubuntu and Windows. It then attaches two binaries to the GitHub Release for that tag:
+
+- `voltkit-x86_64-pc-windows-msvc.exe`, linked with the static CRT, so the machine does not need the Visual C++ redistributable
+- `voltkit-x86_64-unknown-linux-gnu`
+
+`SHA256SUMS` is attached beside them. A pull request, and a push to `main`, runs the same three checks in `.github/workflows/ci.yml` and does not publish a release.
+
 License: MIT OR Apache-2.0.

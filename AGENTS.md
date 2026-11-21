@@ -13,4 +13,5 @@
 
 `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` pass
 before a change is done. `unsafe` is forbidden. No dependencies without a reason in the
-commit message.
+commit message. `publish = false` stays. A release is a GitHub Release from a `v*.*.*` tag.
+It is not a crates.io publish.
