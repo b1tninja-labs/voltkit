@@ -23,7 +23,7 @@ Status:
 
 | Status | Obligation | Anchor | Test |
 |---|---|---|---|
-| [open] | Offer the lab peer: start `fakeobd serve` on `127.0.0.1:35000` and dial it. fakeobd admits the read set and refuses `$27`. It has no serial or Bluetooth server | `fakeobd` `serve`; `crates/obd-policy` | none |
+| [ok] | Offer the lab peer: start `fakeobd serve` on `127.0.0.1:35000` and dial it. fakeobd admits the read set and refuses `$27`. It has no serial or Bluetooth server | `fakeobd` `serve`; `crates/obd-policy` | `lab::serve_listens_on_127_0_0_1_35000`; `the_lab_command_starts_fakeobd_serve_on_127_0_0_1_35000_and_dials_it` |
 | [open] | Offer the bench peer: start `obd-bridge --name OBDLink` and dial `127.0.0.1:35000`. An OBDLink MX is that BLE ELM327 when it advertises the FFF0 serial service. voltkit does not open the radio | `obd-bridge` README | none |
 | [open] | Hand the programming read to `spskit` `build_vit1` / `programming_data_request`. spskit does not post the body and does not program the car. No CLI wraps that function today | `spskit/vit1.py`; `spskit/docs/tool-boundary.md` | none |
 | [open] | A fake SPS peer that answers `getProgrammingData` from a saved body. No `fakesps` directory exists. A shell is not created until a captured exchange is the contract | searched `D:\code` 2026-11-21 | none |
