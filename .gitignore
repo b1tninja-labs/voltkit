@@ -1,1 +1,11 @@
 /target
+
+# A capture from a car stays on this machine. A profile or a new scan is not
+# source. The two files under scans/ are the loopback logs of the fakeobd lab
+# profile (peer 127.0.0.1) and stay tracked.
+*.profile
+profiles/
+captures/
+scans/*
+!scans/volt-lab.txt
+!scans/volt-lab-obdhub.txt
