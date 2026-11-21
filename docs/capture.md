@@ -4,18 +4,18 @@
 
 The session and gauge commands stay on loopback. `profile` dials the TCP address the operator passes, or on Windows opens the COM port they pass, at 115200 unless `--baud` says otherwise. `$27` is refused before it is written. Write services are refused. The socket will carry services `01`, `03`, `1A`, and `22`. The capture sends `$1A`, `$22`, and one mode `03` on `7DF`.
 
-A device id in the programming client is not a CAN header. K17's device id is 40, and Voltage module 40 is header `241`, but those two uses of 40 are different address maps. No file pairs an SPS device id with an 11-bit request header. `spsvcs.dll` has no static device-to-header rows. A header for one of those ids would come from a live `$1A` `$B0` response, which this command does not interpret.
+A device id in the programming client is not a CAN header. K17's device id is 40, and Voltage module 40 is header `241`, but those two uses of 40 are different address maps. No file pairs an SPS device id with an 11-bit request header. `spsvcs.dll` has no static device-to-header rows. A live `$1A` `$B0` reply is what would name one. When the receive id is `641` through `65F`, the clone comments the device byte and the request id. A header with no receive id is left as hex.
 
 ```mermaid
 flowchart TD
   adapter["ELM327 adapter"]
   all["profile --set all --clone"]
   lab["fakeobd profile"]
-  parts["profile --set parts --set sps-extra --set hardware"]
-  saved["saved read for each controller the catalog names"]
+  prog["parts, sps-extra, hardware, and identity"]
+  saved["lid lines with the decimal and device comments"]
   named["getProgrammingData names the blobs"]
   adapter --> all --> lab
-  adapter --> parts --> saved --> named
+  adapter --> prog --> saved --> named
 ```
 
 ## Commands
@@ -58,6 +58,43 @@ voltkit profile COMn [--baud 115200] [--set NAME]... [--range HEADER 22|1A START
 
 `hardware` asks `$1A` `CB` once on `7E0`, `7E1`, `7E2`, `7E4`, `7E5`, `7E6`, `7E7`, `241`, `242`, `244`, `24B`, `24C`, `251`, `255`, `257`, and `258`. The response filters are the pairs above. `7E0` through `7E7` set no `ATCRA`. It also asks `$1A` `CC` on `244` and on the nine `presence` headers, because `identity` already asks `CC` on `7E0`, `7E1`, `7E4`, `7E7`, `241`, and `24C`. `621` and `7DF` are not in this set.
 
+`all` is the emulation pass. `identity` is its `$1A` slice. `parts`, `sps-extra`, `hardware`, and `presence` are asked only when named.
+
+```mermaid
+flowchart TD
+  subgraph inside["Inside all"]
+    scan["scan, including mode 03 on 7DF"]
+    lab["7E0, 7E1, 7E4, 7E7, 241, 244, 24C, and 621"]
+    identity["identity: every 1A already in that capture"]
+  end
+  subgraph beside["Asked only when named"]
+    parts["parts: 1A C0 through CA"]
+    extra["sps-extra: the other part ids"]
+    hardware["hardware: 1A CB, and CC where identity does not"]
+    presence["presence: 1A 90 on nine headers"]
+  end
+```
+
+Each arrow is a request header and the response id the filter selects. A physical header sets no `ATCRA`. `621` and `7DF` have no pair.
+
+```mermaid
+flowchart LR
+  subgraph filtered["Filter set"]
+    h241["241"] --> r641["641"]
+    h242["242"] --> r642["642"]
+    h244["244"] --> r644["644"]
+    h24B["24B"] --> r64B["64B"]
+    h24C["24C"] --> r64C["64C"]
+    h251["251"] --> r651["651"]
+    h255["255"] --> r655["655"]
+    h257["257"] --> r657["657"]
+    h258["258"] --> r658["658"]
+  end
+  subgraph physical["No ATCRA"]
+    phys["7E0, 7E1, 7E2, 7E4, 7E5, 7E6, 7E7"]
+  end
+```
+
 ## The clone
 
 A positive `$22` reply becomes `did IIII HEX`, using the bytes after `62` and the identifier. A positive `$1A` reply becomes `lid II HEX`, using the bytes after `5A` and the identifier. A negative reply is counted and left out. The same identifier on the same header is kept once.
@@ -66,7 +103,35 @@ The file starts with `s3 5000`. An answered header becomes one `ecu` line when t
 
 A header the lab profile does not name is a comment. `621` and mode `03` on `7DF` have no recorded response id, and the comment says so. A `presence` header that has a response id, such as `242` receiving `642`, comments the `lid` line and names that response id. It does not add an `ecu` line.
 
+```mermaid
+flowchart TD
+  reply["One reply"]
+  positive{"Positive?"}
+  dropped["Counted and left out"]
+  service{"Service"}
+  did["did line: bytes after 62 and the identifier"]
+  lid["lid line: bytes after 5A and the identifier"]
+  mode["Comment of the raw 43 hex"]
+  named{"The lab profile names the header?"}
+  ecu["One ecu line for that header"]
+  note["A comment, with the response id or the missing-id line"]
+  reply --> positive
+  positive -->|no| dropped
+  positive -->|yes| service
+  service -->|22| did --> named
+  service -->|1A| lid --> named
+  service -->|03| mode --> note
+  named -->|yes| ecu
+  named -->|no| note
+```
+
 For `$1A` `C0` through `CA`, and for `$1A` `CB`, when at least four data bytes came back, the line comments the decimal of those four bytes. That is the part-number slice, and the same slice for the hardware identifier: the identifier echo is not included, and the next four bytes are an unsigned integer, first byte most significant. In `spskit`, `format0_decimal` takes the same four bytes from a longer buffer whose byte 2 is the service and whose start byte 1 is response byte 4. A `$7F` in that buffer writes no number. A short payload is not a part number. `$CC` stays hex. K17's hardware field is the string from that read, so a decimal comment would name a different value.
+
+```mermaid
+flowchart LR
+  svc["5A"] --> id["identifier"] --> b0["data byte 0"] --> b1["data byte 1"] --> b2["data byte 2"] --> b3["data byte 3"]
+  b0 --- dec["C0-CA and CB: these four are the decimal"]
+```
 
 `fakeobd serve --profile FILE` parses this file. A sample clone was loaded on `127.0.0.1:35991` and read back: `224532` returned `did 4532 0001`, `1AC1` returned `lid C1` with decimal 42, and `224250` returned `did 4250 BBE0`. That server was stopped. The sample used synthetic bytes, not a car.
 
@@ -130,7 +195,19 @@ K16 is in the catalog, device id 205, request method 583, and it is not in the t
 
 `voltkit profile COMn --set parts --set sps-extra --set hardware --set identity --clone` asks `$1A` `C0` through `CA`, then `40` through `4A`, `60`, `62`, `64`, `66`, `67`, `68`, `69`, `6A`, `71`, `73`, `74`, and `76`, on `7E0`, `7E1`, `7E4`, `7E7`, and `241`. `sps-extra` does not repeat `C0`. `hardware` asks `CB` on the headers listed above, and `CC` where `identity` does not. `identity` asks `90`, `CC`, and `B0` on the lab headers, including `B0` on `7DF`. `90` is not in `sps-extra` or `hardware`. No SPS device id has a recovered CAN header, so the read cannot be aimed at a controller by its device id. The hardware decimal is the comment on a positive `CB` line. `CC` stays hex because K17 keeps that field as a string.
 
-That command already asks every identifier the pairable VIT rules read. Parts are `C1` through `CA` plus the extra ids in the table. Hardware is `CB`, `CC`, or `C1`, and `C1` is already a part. VIN `$90` is asked on the rows that read it. `cvn_in_vit1` is not a DID. A format-0 part leaves it at `0`. K20, K107A, and K107B can store `1` only when byte 11 of a 16-byte part cell is `1`, and that copy names no identifier. `$27` stays off the programming-data body. K16's part string is not split. K73 methods 520 and 566 copy three bytes from `$81` and do not store them as `ssecuhn`. The same part list is not copied onto `244` or the `presence` headers. Those headers have no recovered controller code.
+That command already asks every identifier the pairable VIT rules read. Parts are `C1` through `CA` plus the extra ids in the table. Hardware is `CB`, `CC`, or `C1`, and `C1` is already a part. VIN `$90` is asked on the rows that read it.
+
+```mermaid
+flowchart LR
+  parts["1A part identifiers"] --> partno["partno, four-byte decimal"]
+  hw["1A CB, CC, or C1"] --> ssecuhn["ssecuhn"]
+  vin["1A 90"] --> vinattr["vin"]
+  partno --> block["VIT1 control-module block"]
+  ssecuhn --> block
+  vinattr --> block
+```
+
+`cvn_in_vit1` is not a DID. A format-0 part leaves it at `0`. K20, K107A, and K107B can store `1` only when byte 11 of a 16-byte part cell is `1`, and that copy names no identifier. `$27` stays off the programming-data body. K16's part string is not split. K73 methods 520 and 566 copy three bytes from `$81` and do not store them as `ssecuhn`. The same part list is not copied onto `244` or the `presence` headers. Those headers have no recovered controller code.
 
 That saved read is what lets `getProgrammingData` name each blob, its size, its download id, and the server list. Fetching the file is the following SPS call. Putting a blob on a module is a later write, and it is outside this capture. A post still needs a positive reply from the car, and a way to say which header is which controller.
 
@@ -142,5 +219,16 @@ That saved read is what lets `getProgrammingData` name each blob, its size, its 
 
 - When `V` is `641` through `65F`, the request id is the low byte of `V` with `0x200` set, and the response id is `V`. A decoded row would print a request in `241` through `25F` and a response in `641` through `65F` with the same low byte. The device byte is independent of that low byte. The image does not say which device byte arrives with which `V`.
 - When byte 0 is `4` and `V` is `7E8` through `7EF`, the request id is `V` minus 8, so `7E0` through `7E7`, and the response id is `V`.
+
+```mermaid
+flowchart TD
+  reply["Positive 1A B0, kept as a lid line"]
+  filtered{"Receive id is 641 through 65F?"}
+  rulea["Comment the device byte, the response id, and the request id"]
+  plain["Hex only. Rule B needs subnet byte 0, and this payload does not carry it."]
+  reply --> filtered
+  filtered -->|yes| rulea
+  filtered -->|no| plain
+```
 
 Any other `V` does not fill the ids. Device 40 has no static row. Expanding either range into one row per id would invent devices the DLL does not contain. `identity` already asks `$B0` on `7E0`, `7E1`, `7E4`, `7E7`, `241`, `24C`, and `7DF`, and a positive reply is kept as a `lid` line. The diagnostic bytes start where the DLL writes `5A` at buffer `0x0A`, so the first data byte after `5A B0` is the device byte at `0x0C`. `V` is the response id. When that id is `641` through `65F`, the clone comments the device byte, the response id, and the request id `lo` with `0x200` set. A header with no receive id, including `7DF` and the physical headers, is not decoded. Rule B needs subnet byte 0, and the ELM payload does not carry it.
