@@ -1,6 +1,8 @@
 //! `voltkit lab` against a stub binary. Nothing here opens a serial port,
 //! a Bluetooth radio, or the fakeobd tree.
 
+mod common;
+
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
@@ -66,6 +68,7 @@ fn main() {
 #[test]
 fn the_lab_command_starts_fakeobd_serve_on_127_0_0_1_35000_and_dials_it() {
     let stub = stub_program();
+    let _port = common::hold_35000();
     assert_port_free();
     let log = std::env::temp_dir().join(format!("voltkit-lab-{}.log", std::process::id()));
     let seen = PathBuf::from(format!("{}.seen", log.display()));

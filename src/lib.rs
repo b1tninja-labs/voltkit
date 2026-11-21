@@ -5,12 +5,14 @@
 //! and the `$22` data identifiers from the 2026-11-14 Voltage trial. `profile` reads the lab profile's
 //! identifiers from the adapter address the operator passes. `wizard` asks which of those
 //! captures to run, then runs it. `lab` starts `fakeobd serve` on `127.0.0.1:35000`
-//! and dials that address. `gauges` reads six of those `$22`
+//! and dials that address. `bench` starts `obd-bridge --name OBDLink` and dials
+//! that same address. voltkit does not open the radio. `gauges` reads six of those `$22`
 //! identifiers and prints the scaled fields. SecurityAccess (`$27`) and write
 //! services are refused before any byte is written. There is no Bluetooth path.
 
 #![forbid(unsafe_code)]
 
+pub mod bench;
 mod capture;
 mod elm;
 mod gauges;
