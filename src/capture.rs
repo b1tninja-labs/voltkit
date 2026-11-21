@@ -244,6 +244,12 @@ pub fn clone_profile(reads: &[Read]) -> String {
                 }
             }
         }
+        if read.row.service == 0x1A && read.row.identifier == 0xB0 {
+            if let Some(note) = rule_a_note(read.row.receive, profile_bytes(&read.row, &read.data))
+            {
+                line.push_str(&note);
+            }
+        }
         if ecu_line(read.row.header).is_some() {
             if let Some((_, lines)) = grouped
                 .iter_mut()
@@ -351,6 +357,19 @@ fn recorded_receive(header: u16) -> Option<u16> {
         0x258 => Some(0x658),
         _ => None,
     }
+}
+
+/// Device byte and request id for a `$1A` `$B0` reply whose receive id is in `641`–`65F`.
+///
+/// That receive id is `V`. The first data byte is the device id at buffer `0x0C`,
+/// the byte after `5A B0`. Rule B needs the subnet byte, which this reply does not carry.
+fn rule_a_note(receive: Option<u16>, data: Option<&[u8]>) -> Option<String> {
+    let response = receive.filter(|id| (0x641..=0x65F).contains(id))?;
+    let device = *data?.first()?;
+    let request = (response & 0xFF) | 0x200;
+    Some(format!(
+        "    # device {device:02X} response {response:03X} request {request:03X}"
+    ))
 }
 
 fn unmapped_header(header: u16, receive: Option<u16>) -> String {
@@ -549,6 +568,14 @@ mod tests {
                 data: vec![0x5A, 0xCB, 0x00, 0x00, 0x00, 0x2A],
             },
             Read {
+                row: gmlan(0x241, Some(0x641), 0xB0),
+                data: vec![0x5A, 0xB0, 0x28],
+            },
+            Read {
+                row: gmlan(0x7E0, None, 0xB0),
+                data: vec![0x5A, 0xB0, 0x11],
+            },
+            Read {
                 row: ScanRow {
                     header: 0x7DF,
                     receive: None,
@@ -575,6 +602,9 @@ mod tests {
         assert!(text.contains("did 4532 0001"));
         assert!(text.contains("lid C1 0000002A    # decimal 42"));
         assert!(text.contains("lid CB 0000002A    # decimal 42"));
+        assert!(text.contains("lid B0 28    # device 28 response 641 request 241"));
+        assert!(text.contains("lid B0 11"));
+        assert!(!text.contains("device 11"));
         assert!(!text.contains("did 000D"));
         assert!(text.contains("# did 2889 00"));
         assert!(text.contains("header 621 has no recorded response id"));
@@ -588,7 +618,7 @@ mod tests {
         assert!(!text.contains("req=621"));
         assert_eq!(
             text.lines().filter(|line| line.starts_with("ecu ")).count(),
-            1
+            3
         );
         assert!(clone_profile(&[]).contains("# no positive reply"));
     }
