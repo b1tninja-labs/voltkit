@@ -5,12 +5,14 @@
 //! and the `$22` data identifiers from the 2026-11-14 Voltage trial. `profile` reads the lab profile's
 //! identifiers from the adapter address the operator passes. `wizard` detects the adapters present
 //! (`detect`), lets the operator select one instead of typing a COM port, asks which capture to run,
-//! then runs it and auto-writes the profile. `lab` starts `fakeobd serve` on `127.0.0.1:35000` and
-//! dials that address (or, with the `lab` feature, serves that bench in-process). `bench` starts
-//! `obd-bridge --name OBDLink` and dials that same address; the OBDLink MX is reached only through
-//! that bridge, so voltkit never opens the radio itself. `gauges` reads six of those `$22`
-//! identifiers and prints the scaled fields. SecurityAccess (`$27`) and write
-//! services are refused before any byte is written.
+//! then runs it and auto-writes the profile. An OBDLink MX (and any FFF0-style BLE serial dongle) is
+//! detected and opened natively over the host Bluetooth radio, in-process through the `dangle`
+//! library — no process is spawned and no TCP socket is used for BLE. `lab` starts `fakeobd serve` on
+//! `127.0.0.1:35000` and dials that address (or, with the `lab` feature, serves that bench
+//! in-process). `bench` is the optional bring-the-bridge path: it starts the `dangle --name OBDLink`
+//! TCP bridge and dials that same address. `gauges` reads six of those `$22` identifiers and prints
+//! the scaled fields. SecurityAccess (`$27`) and write services are refused before any byte is
+//! written.
 
 #![forbid(unsafe_code)]
 

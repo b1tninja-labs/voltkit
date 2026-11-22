@@ -2,16 +2,16 @@
 //! of typing a COM port.
 //!
 //! A [`Device`] is one selectable adapter: a Windows COM port with its friendly
-//! name, a VCX-NANO identified by a GetInfo read, an OBDLink MX seen over BLE by
-//! `obd-bridge scan`, or a remembered Wi-Fi/TCP target. [`Link`] is how a chosen
-//! device is reached: a TCP address, a COM port and baud, a VCX USB port, or the
-//! loopback socket that `obd-bridge` republishes an MX on.
+//! name, a VCX-NANO identified by a GetInfo read, an OBDLink MX found natively over
+//! the host Bluetooth radio, or a remembered Wi-Fi/TCP target. [`Link`] is how a
+//! chosen device is reached: a TCP address, a COM port and baud, a VCX USB port, or
+//! a BLE device address opened in-process through the `dangle` radio library.
 //!
 //! The device enumeration touches hardware and is gated by platform and feature.
-//! The parsing, labelling, and auto-naming are pure and tested without a device:
-//! `obd-bridge scan` output is parsed by [`parse_bridge_scan`], a capture file is
-//! named by [`auto_profile_path`], and a chosen link becomes a capture target by
-//! [`Link::target`].
+//! The labelling, the BLE capture target, and the auto-naming are pure and tested
+//! without a device: a BLE address becomes a capture target by [`ble_target`] (and
+//! back by [`parse_ble_target`]), a capture file is named by [`auto_profile_path`],
+//! and a chosen link becomes a capture target by [`Link::target`].
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -28,13 +28,17 @@ pub enum Link {
         /// The baud, or `None` for 115200.
         baud: Option<u32>,
     },
-    /// An OBDLink MX reached through a managed `obd-bridge` on the loopback socket.
+    /// An OBDLink MX (or any FFF0-style BLE serial dongle) reached natively over the
+    /// host Bluetooth radio.
     ///
-    /// voltkit spawns `obd-bridge --name OBDLink`, which dials the BLE radio, and
-    /// connects to [`crate::bench::ADDRESS`]. voltkit does not open the radio.
-    BleBridge {
+    /// voltkit opens the dongle in-process through the `dangle` radio library at this
+    /// 48-bit Bluetooth device address and drives the ELM327 session over the GATT
+    /// serial service. No process is spawned and no TCP socket is used.
+    Ble {
         /// The advertiser name, for the summary.
         name: String,
+        /// The 48-bit Bluetooth device address to connect to.
+        address: u64,
     },
     /// A VCX-NANO on a USB COM port number. Identify-only in the wizard: the live
     /// vehicle read stays gated in vcxtoolkit, so this link does not capture.
@@ -47,15 +51,15 @@ pub enum Link {
 impl Link {
     /// The `voltkit profile` target and baud for this link.
     ///
-    /// A [`Link::BleBridge`] captures through the managed bridge on
-    /// [`crate::bench::ADDRESS`]. A [`Link::Vcx`] does not capture, so it has no
-    /// target.
+    /// A [`Link::Ble`] captures natively over the host radio; its target is the
+    /// `ble:<address>` form [`ble_target`] produces, which [`crate::Session`] opens
+    /// in-process. A [`Link::Vcx`] does not capture, so it has no target.
     #[must_use]
     pub fn target(&self) -> Option<(String, Option<u32>)> {
         match self {
             Link::Tcp(addr) => Some((addr.clone(), None)),
             Link::Serial { port, baud } => Some((port.clone(), *baud)),
-            Link::BleBridge { .. } => Some((crate::bench::ADDRESS.to_string(), None)),
+            Link::Ble { address, .. } => Some((ble_target(*address), None)),
             Link::Vcx { .. } => None,
         }
     }
@@ -67,12 +71,36 @@ impl Link {
     pub fn capturable(&self) -> bool {
         !matches!(self, Link::Vcx { .. })
     }
+}
 
-    /// Whether voltkit spawns `obd-bridge` for this link before the capture.
-    #[must_use]
-    pub fn managed_bridge(&self) -> bool {
-        matches!(self, Link::BleBridge { .. })
+/// The `voltkit profile` target string for a BLE device at `address`.
+///
+/// The form is `ble:AA:BB:CC:DD:EE:FF`. The `ble:` scheme tells the capture path to
+/// open the dongle natively over the host radio rather than dial a socket or a COM
+/// port; [`parse_ble_target`] reads it back to the 48-bit address. This is pure, so
+/// the round-trip is tested without a radio.
+#[must_use]
+pub fn ble_target(address: u64) -> String {
+    let b = address.to_be_bytes();
+    format!(
+        "ble:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        b[2], b[3], b[4], b[5], b[6], b[7]
+    )
+}
+
+/// The 48-bit Bluetooth address of a `ble:AA:BB:CC:DD:EE:FF` target, or `None`.
+///
+/// This is the inverse of [`ble_target`]: the capture path uses it to recover the
+/// address a native BLE connect needs. Any target without the `ble:` scheme, or with
+/// the wrong number of hex digits, yields `None`.
+#[must_use]
+pub fn parse_ble_target(target: &str) -> Option<u64> {
+    let rest = target.strip_prefix("ble:")?;
+    let hex: String = rest.chars().filter(|c| *c != ':').collect();
+    if hex.len() != 12 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
     }
+    u64::from_str_radix(&hex, 16).ok()
 }
 
 /// One adapter the wizard offers.
@@ -97,98 +125,60 @@ impl Device {
     }
 }
 
-/// One advertiser parsed from an `obd-bridge scan` row.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BleAdvert {
-    /// The `AA:BB:CC:DD:EE:FF` address.
-    pub addr: String,
-    /// The advertised name, or `<unnamed>`.
-    pub name: String,
-    /// The signal, such as `-72 dBm`.
-    pub rssi: String,
-    /// Whether the row was marked as carrying the serial service.
-    pub serial: bool,
-}
-
-/// Parse the advertiser rows `obd-bridge scan` prints.
+/// One selectable native-BLE device for a serial-service advertiser.
 ///
-/// A doctor row is `AA:BB:CC:DD:EE:FF  -72 dBm  NAME  [FFF0, ...]` and the serial
-/// advertiser also ends `<- serial service (FFF0)`. Header, count, and status
-/// lines are ignored. The serial advertisers come first, then by signal, the
-/// order `obd-bridge` already sorts them, so the first serial row is the MX.
+/// `name` is the advertised name (or `<unnamed>`), `address` the 48-bit Bluetooth
+/// address the native connect uses, and `rssi` the signal in dBm. The device carries
+/// its address in a [`Link::Ble`], so picking it opens the dongle over the host radio
+/// directly. This is pure: the label, detail, and link are built without a radio, so
+/// the scan's host-specific half only has to map its advertisers onto it.
 #[must_use]
-pub fn parse_bridge_scan(stdout: &str) -> Vec<BleAdvert> {
-    let mut out = Vec::new();
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        let Some((addr_rest, _)) = trimmed.split_once(" dBm") else {
-            continue;
-        };
-        // The address is the first whitespace-delimited token, and it is a
-        // colon-separated MAC. Anything else on this line is not a row.
-        let mut tokens = addr_rest.split_whitespace();
-        let Some(addr) = tokens.next() else { continue };
-        if !is_mac(addr) {
-            continue;
-        }
-        let Some(rssi_value) = tokens.next() else {
-            continue;
-        };
-        let rssi = format!("{rssi_value} dBm");
-        let serial = trimmed.contains("<- serial service");
-        // The name is the text between the dBm field and the service bracket.
-        let after_rssi = addr_rest
-            .split_once(rssi_value)
-            .map(|(_, rest)| rest)
-            .unwrap_or("");
-        let name_text = trimmed
-            .split_once(" dBm")
-            .map(|(_, rest)| rest)
-            .unwrap_or(after_rssi);
-        let name = name_text.split('[').next().unwrap_or("").trim().to_string();
-        out.push(BleAdvert {
-            addr: addr.to_string(),
-            name: if name.is_empty() {
-                "<unnamed>".to_string()
-            } else {
-                name
-            },
-            rssi,
-            serial,
-        });
-    }
-    out
+pub fn ble_device(name: &str, address: u64, rssi: i16) -> Device {
+    let name = if name.is_empty() { "<unnamed>" } else { name };
+    Device::new(
+        format!("{name}  (Bluetooth LE)"),
+        format!(
+            "Phase 1 — module clone (ELM327 over native BLE). {} {rssi} dBm",
+            ble_target(address).trim_start_matches("ble:")
+        ),
+        Link::Ble {
+            name: name.to_string(),
+            address,
+        },
+    )
 }
 
-fn is_mac(token: &str) -> bool {
-    let parts: Vec<&str> = token.split(':').collect();
-    parts.len() == 6
-        && parts
-            .iter()
-            .all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_hexdigit()))
-}
-
-/// The MX devices among the advertisers `obd-bridge scan` reported.
+/// The MX devices the host Bluetooth radio sees right now, or none off a build that
+/// cannot scan.
 ///
-/// Only the serial-service advertisers become selectable devices, each reached
-/// through the managed bridge. A scan that saw no serial advertiser yields none.
+/// This runs `dangle`'s advertisement watcher in-process ([`dangle::scan_advertisers`])
+/// and keeps only the advertisers carrying the serial GATT service (default `FFF0`),
+/// strongest signal first. It opens no GATT connection and binds no socket — the scan
+/// is a passive BLE listen. Built without the `ble` feature (or off Windows) there is
+/// no radio, so this yields nothing.
+#[cfg(all(windows, feature = "ble"))]
 #[must_use]
-pub fn ble_devices(adverts: &[BleAdvert]) -> Vec<Device> {
+pub fn ble_devices(scan_timeout: Duration) -> Vec<Device> {
+    let Ok(adverts) = dangle::scan_advertisers(
+        scan_timeout,
+        &dangle::ScanFilter::default(),
+        dangle::DEFAULT_SERVICE_UUID,
+    ) else {
+        return Vec::new();
+    };
     adverts
         .iter()
-        .filter(|a| a.serial)
-        .map(|a| {
-            let name = a.name.clone();
-            Device::new(
-                format!("{name}  (Bluetooth LE)"),
-                format!(
-                    "Phase 1 — module clone. {} {}  — managed through obd-bridge",
-                    a.addr, a.rssi
-                ),
-                Link::BleBridge { name },
-            )
-        })
+        .filter(|a| a.has_serial_service)
+        .map(|a| ble_device(&a.name, a.address, a.rssi))
         .collect()
+}
+
+/// No native BLE backend in this build (off Windows, or the `ble` feature is off),
+/// so there is no radio to scan: this yields nothing.
+#[cfg(not(all(windows, feature = "ble")))]
+#[must_use]
+pub fn ble_devices(_scan_timeout: Duration) -> Vec<Device> {
+    Vec::new()
 }
 
 /// A friendly label for a serial port and its USB product string.
@@ -292,16 +282,16 @@ pub fn com_number(port: &str) -> Option<u32> {
 /// Every adapter the wizard can offer right now, in menu order.
 ///
 /// Serial ports first (each with its friendly name), then any VCX-NANO the doctor
-/// identified, then the MX devices `obd-bridge scan` saw, then the remembered
+/// identified, then the MX devices the host Bluetooth radio saw, then the remembered
 /// Wi-Fi/TCP target. The list is empty of hardware on a platform or build that
 /// cannot look, and the wizard always offers manual entry beside it.
 ///
-/// `scan_timeout` bounds the BLE scan; `remembered` is the last TCP address.
+/// `scan_timeout` bounds the native BLE scan; `remembered` is the last TCP address.
 #[must_use]
 pub fn devices(scan_timeout: Duration, remembered: Option<&str>) -> Vec<Device> {
     let serial = serial_devices();
     let vcx = vcx_devices(&serial);
-    let ble = bridge_devices(scan_timeout);
+    let ble = ble_devices(scan_timeout);
     assemble(vcx, serial, ble, remembered)
 }
 
@@ -430,70 +420,46 @@ pub fn vcx_doctor(port: u32) -> Option<vcxtoolkit::DeviceInfo> {
     None
 }
 
-/// The MX devices `obd-bridge scan` reports, or none when the bridge is absent.
-///
-/// This spawns `obd-bridge scan --scan-timeout <secs>` and parses its rows. The
-/// bridge opens no vehicle; the scan is a passive BLE listen. A missing bridge or
-/// a non-Windows host yields nothing.
-fn bridge_devices(scan_timeout: Duration) -> Vec<Device> {
-    let program = crate::bench::program(std::env::var_os(crate::bench::PROGRAM_ENV));
-    let secs = scan_timeout.as_secs().max(1).to_string();
-    let output = std::process::Command::new(&program)
-        .args(["scan", "--scan-timeout", &secs])
-        .stdin(std::process::Stdio::null())
-        .output();
-    let Ok(output) = output else {
-        return Vec::new();
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    ble_devices(&parse_bridge_scan(&stdout))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_scan_row_parses_into_an_advertiser() {
-        let scan = "\
-host Bluetooth adapter: present
-scanning for 10s ...
-3 BLE advertiser(s) seen (serial service FFF0 marked):
-  AA:BB:CC:DD:EE:FF    -58 dBm  OBDLink MX  [FFF0, 1801]  <- serial service (FFF0)
-  11:22:33:44:55:66    -77 dBm  <unnamed>  [180F]
-  AB:CD:EF:01:23:45    -80 dBm  Some Watch  [-]
-";
-        let adverts = parse_bridge_scan(scan);
-        assert_eq!(adverts.len(), 3);
-        assert_eq!(adverts[0].addr, "AA:BB:CC:DD:EE:FF");
-        assert_eq!(adverts[0].name, "OBDLink MX");
-        assert_eq!(adverts[0].rssi, "-58 dBm");
-        assert!(adverts[0].serial);
-        assert_eq!(adverts[1].name, "<unnamed>");
-        assert!(!adverts[1].serial);
-        assert!(!adverts[2].serial);
+    fn a_ble_target_round_trips_through_its_address() {
+        // The capture target carries the 48-bit address as `ble:AA:BB:...`, and the
+        // capture path reads it back without a radio.
+        let addr = 0x0000_AABB_CCDD_EEFF;
+        assert_eq!(ble_target(addr), "ble:AA:BB:CC:DD:EE:FF");
+        assert_eq!(parse_ble_target("ble:AA:BB:CC:DD:EE:FF"), Some(addr));
+        assert_eq!(parse_ble_target("ble:aabbccddeeff"), Some(addr));
+        // Anything that is not a `ble:` target of 12 hex digits is not one.
+        assert_eq!(parse_ble_target("127.0.0.1:35000"), None);
+        assert_eq!(parse_ble_target("COM5"), None);
+        assert_eq!(parse_ble_target("ble:AA:BB"), None);
+        assert_eq!(parse_ble_target("ble:ZZBBCCDDEEFF"), None);
     }
 
     #[test]
-    fn only_the_serial_advertiser_becomes_a_managed_mx_device() {
-        let scan = "\
-  AA:BB:CC:DD:EE:FF    -58 dBm  OBDLink MX  [FFF0]  <- serial service (FFF0)
-  11:22:33:44:55:66    -77 dBm  Headphones  [180F]
-";
-        let devices = ble_devices(&parse_bridge_scan(scan));
-        assert_eq!(devices.len(), 1);
+    fn a_serial_advertiser_becomes_a_native_ble_device() {
+        let device = ble_device("OBDLink MX", 0x0000_AABB_CCDD_EEFF, -58);
         assert_eq!(
-            devices[0].link,
-            Link::BleBridge {
-                name: "OBDLink MX".to_string()
+            device.link,
+            Link::Ble {
+                name: "OBDLink MX".to_string(),
+                address: 0x0000_AABB_CCDD_EEFF,
             }
         );
-        assert!(devices[0].link.managed_bridge());
         assert_eq!(
-            devices[0].link.target(),
-            Some((crate::bench::ADDRESS.to_string(), None))
+            device.link.target(),
+            Some(("ble:AA:BB:CC:DD:EE:FF".to_string(), None))
         );
-        assert!(devices[0].label.contains("OBDLink MX"));
+        assert!(device.link.capturable());
+        assert!(device.label.contains("OBDLink MX"));
+        assert!(device.label.contains("Bluetooth LE"));
+        assert!(device.detail.contains("AA:BB:CC:DD:EE:FF"));
+        assert!(device.detail.contains("-58 dBm"));
+        // An unnamed advertiser still names a device.
+        assert!(ble_device("", 1, -90).label.contains("<unnamed>"));
     }
 
     #[test]
@@ -510,10 +476,17 @@ scanning for 10s ...
             .target(),
             Some(("COM5".to_string(), Some(38_400)))
         );
+        assert_eq!(
+            Link::Ble {
+                name: "OBDLink MX".to_string(),
+                address: 0x0000_AABB_CCDD_EEFF,
+            }
+            .target(),
+            Some(("ble:AA:BB:CC:DD:EE:FF".to_string(), None))
+        );
         let vcx = Link::Vcx { port: 4 };
         assert_eq!(vcx.target(), None);
         assert!(!vcx.capturable());
-        assert!(!vcx.managed_bridge());
         assert!(Link::Serial {
             port: "COM5".to_string(),
             baud: None
@@ -562,7 +535,7 @@ scanning for 10s ...
     #[test]
     fn the_menu_order_is_vcx_then_serial_then_ble_then_remembered() {
         // The assembly is pure, so the order and the remembered entry are tested
-        // without opening a COM port, a radio, or spawning obd-bridge.
+        // without opening a COM port or a radio.
         let vcx = vec![Device::new("VCX-NANO on COM4", "", Link::Vcx { port: 4 })];
         let serial = vec![Device::new(
             "COM5  OBDLink",
@@ -575,8 +548,9 @@ scanning for 10s ...
         let ble = vec![Device::new(
             "OBDLink MX  (Bluetooth LE)",
             "",
-            Link::BleBridge {
+            Link::Ble {
                 name: "OBDLink MX".to_string(),
+                address: 0x0000_AABB_CCDD_EEFF,
             },
         )];
         let found = assemble(vcx, serial, ble, Some("127.0.0.1:35000"));
@@ -585,7 +559,7 @@ scanning for 10s ...
             .map(|d| match d.link {
                 Link::Vcx { .. } => "vcx",
                 Link::Serial { .. } => "serial",
-                Link::BleBridge { .. } => "ble",
+                Link::Ble { .. } => "ble",
                 Link::Tcp(_) => "tcp",
             })
             .collect();

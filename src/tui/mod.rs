@@ -36,7 +36,6 @@ struct App {
     adapter: adapter::Adapter,
     choice: Option<menu::MenuChoice>,
     plan: Option<Plan>,
-    managed_bridge: bool,
     remembered: Option<String>,
     progress: progress::Progress,
     stage: Option<stage::Stage>,
@@ -53,7 +52,6 @@ impl App {
             adapter: adapter::Adapter::new(),
             choice: None,
             plan: None,
-            managed_bridge: false,
             remembered: None,
             progress: progress::Progress::new(String::new()),
             stage: None,
@@ -216,7 +214,6 @@ impl App {
         };
         match wizard::describe(&plan) {
             Ok(_) => {
-                self.managed_bridge = device.link.managed_bridge();
                 self.plan = Some(plan);
                 self.screen = Screen::Confirm;
             }
@@ -242,7 +239,6 @@ impl App {
                 match plan_from(&choice, &ready) {
                     Ok(plan) => match wizard::describe(&plan) {
                         Ok(_) => {
-                            self.managed_bridge = false;
                             self.plan = Some(plan);
                             self.screen = Screen::Confirm;
                         }
@@ -289,21 +285,9 @@ impl App {
             self.progress.done = true;
             return Ok(());
         };
-        // An OBDLink MX capture is managed: voltkit spawns obd-bridge, waits for
-        // its listen line, and keeps it alive for the capture, which is the one
-        // TCP client. voltkit does not open the radio.
-        let _bridge = if self.managed_bridge {
-            match start_bridge() {
-                Ok(peer) => Some(peer),
-                Err(err) => {
-                    self.progress.error = Some(err);
-                    self.progress.done = true;
-                    return Ok(());
-                }
-            }
-        } else {
-            None
-        };
+        // An OBDLink MX capture opens the dongle natively over the host radio: the
+        // BLE target carries its address and the capture connects in-process. No
+        // process is spawned and no TCP socket is used.
         let args = super::profile_args(&plan);
         let result = {
             let progress = &mut self.progress;
@@ -422,14 +406,6 @@ fn run_stage(port: u32, dir: &std::path::Path, secs: u64) -> Result<std::path::P
 #[cfg(not(all(windows, feature = "vcx")))]
 fn run_stage(_port: u32, _dir: &std::path::Path, _secs: u64) -> Result<std::path::PathBuf, String> {
     Err("VCX staging needs the vcx feature on Windows".to_string())
-}
-
-/// Spawn the managed obd-bridge and wait until it is listening.
-fn start_bridge() -> Result<voltkit::bench::BenchPeer, String> {
-    let program = voltkit::bench::program(std::env::var_os(voltkit::bench::PROGRAM_ENV));
-    let mut peer = voltkit::bench::BenchPeer::start(&program).map_err(|e| e.to_string())?;
-    peer.wait_listening().map_err(|e| e.to_string())?;
-    Ok(peer)
 }
 
 pub fn run() -> Result<(), String> {

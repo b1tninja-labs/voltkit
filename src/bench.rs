@@ -1,17 +1,19 @@
 //! Launch the bench peer and dial it.
 //!
-//! The peer is the `obd-bridge` process on [`ADDRESS`]. This module spawns
-//! that binary and opens a [`Session`] to it. `obd-bridge` is not a crate
-//! dependency. The command line is `--name OBDLink`. The obd-bridge README
-//! default for `--listen` is [`ADDRESS`], so this command does not pass
-//! `--listen`. An inherited `OBD_BRIDGE_LISTEN` would move that socket, and
-//! the child does not receive the variable. Dial waits until the process
-//! writes a stderr line that says it is listening on [`ADDRESS`].
-//! `obd-bridge` prints that line after the bind succeeds. A listener already
-//! bound on the port is not this peer, and a bind-failure line is not that
-//! report. voltkit does not open a Bluetooth radio, a COM port, or a
-//! vehicle. The session still refuses `$27` and the write services before
-//! a byte is written.
+//! The peer is the `dangle` TCP-bridge process on [`ADDRESS`]. `voltkit bench`
+//! spawns that binary and opens a [`Session`] to it; this is the optional
+//! bring-the-bridge path (for example to reach a radio from an emulator), beside
+//! the wizard's native in-process BLE. `dangle` is not a crate dependency here —
+//! its BLE *library* is what the wizard links; this command spawns its *binary*.
+//! The command line is `--name OBDLink`. The `dangle` README default for
+//! `--listen` is [`ADDRESS`], so this command does not pass `--listen`. An
+//! inherited `DANGLE_LISTEN` would move that socket, and the child does not
+//! receive the variable. Dial waits until the process writes a stderr line that
+//! says it is listening on [`ADDRESS`]. `dangle` prints that line after the bind
+//! succeeds. A listener already bound on the port is not this peer, and a
+//! bind-failure line is not that report. voltkit does not open a Bluetooth radio,
+//! a COM port, or a vehicle here. The session still refuses `$27` and the write
+//! services before a byte is written.
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
@@ -22,32 +24,32 @@ use std::time::{Duration, Instant};
 
 use crate::{Error, Session};
 
-/// The loopback socket `obd-bridge` listens on for the bench peer.
+/// The loopback socket `dangle` listens on for the bench peer.
 ///
 /// This is the README default. The command does not pass `--listen`.
 pub const ADDRESS: &str = "127.0.0.1:35000";
 
-/// Environment variable that names the `obd-bridge` binary.
+/// Environment variable that names the `dangle` binary.
 ///
-/// When it is unset, the command is `obd-bridge` on `PATH`.
+/// When it is unset, the command is `dangle` on `PATH`.
 pub const PROGRAM_ENV: &str = "VOLTKIT_BENCH_PEER";
 
-/// `program` when the operator passed one, otherwise `obd-bridge`.
+/// `program` when the operator passed one, otherwise `dangle`.
 #[must_use]
 pub fn program(override_path: Option<OsString>) -> OsString {
-    override_path.unwrap_or_else(|| OsString::from("obd-bridge"))
+    override_path.unwrap_or_else(|| OsString::from("dangle"))
 }
 
 /// Arguments that start the bench peer.
 ///
 /// `--name OBDLink` selects the BLE adapter by name. The listen address stays
-/// the obd-bridge default, [`ADDRESS`].
+/// the `dangle` default, [`ADDRESS`].
 #[must_use]
 pub fn bridge_args() -> [&'static str; 2] {
     ["--name", "OBDLink"]
 }
 
-/// A running `obd-bridge --name OBDLink` process.
+/// A running `dangle --name OBDLink` process.
 ///
 /// Dropping this value stops the process.
 #[derive(Debug)]
@@ -59,7 +61,7 @@ pub struct BenchPeer {
 impl BenchPeer {
     /// Spawn `program` with [`bridge_args`].
     ///
-    /// `OBD_BRIDGE_LISTEN` is removed from the child so the README default
+    /// `DANGLE_LISTEN` is removed from the child so the README default
     /// stays [`ADDRESS`].
     ///
     /// # Errors
@@ -69,7 +71,7 @@ impl BenchPeer {
         let program = program.as_ref();
         let child = Command::new(program)
             .args(bridge_args())
-            .env_remove("OBD_BRIDGE_LISTEN")
+            .env_remove("DANGLE_LISTEN")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -85,7 +87,7 @@ impl BenchPeer {
 
     /// Dial [`ADDRESS`] after the peer reports that it is listening there.
     ///
-    /// `obd-bridge` prints `listening on 127.0.0.1:35000` after the listen
+    /// `dangle` prints `listening on 127.0.0.1:35000` after the listen
     /// socket exists. A connection is not opened before that line, so some
     /// other process already bound to the port is not treated as this peer.
     /// A later line, or a line about a different socket, does not count.
@@ -106,16 +108,14 @@ impl BenchPeer {
 
     /// Wait until the peer reports it is listening on [`ADDRESS`], without dialing.
     ///
-    /// The wizard spawns the bridge for a managed OBDLink MX capture and then lets
-    /// the capture itself be the one TCP client, so this waits for the listen line
-    /// but leaves the connection to the caller. The peer keeps running until this
-    /// value is dropped.
+    /// [`dial`](Self::dial) calls this before it opens the socket, so a listener some
+    /// other process already bound to the port is not treated as this peer.
     ///
     /// # Errors
     ///
     /// Returns [`Error::Io`] when the peer exits or closes stderr before it reports
     /// that it is listening.
-    pub fn wait_listening(&mut self) -> Result<(), Error> {
+    fn wait_listening(&mut self) -> Result<(), Error> {
         let stderr =
             self.child.stderr.take().ok_or_else(|| {
                 Error::Io(io::Error::other("bench peer stderr was already taken"))
@@ -246,8 +246,8 @@ mod tests {
     }
 
     #[test]
-    fn the_program_defaults_to_obd_bridge() {
-        assert_eq!(program(None), OsString::from("obd-bridge"));
+    fn the_program_defaults_to_dangle() {
+        assert_eq!(program(None), OsString::from("dangle"));
         assert_eq!(
             program(Some(OsString::from(r"D:\bench-stub.exe"))),
             OsString::from(r"D:\bench-stub.exe")
@@ -256,12 +256,10 @@ mod tests {
 
     #[test]
     fn only_a_listening_line_for_this_socket_names_the_bench_peer() {
-        assert!(reports_listening(
-            b"obd-bridge: listening on 127.0.0.1:35000\n"
-        ));
+        assert!(reports_listening(b"dangle: listening on 127.0.0.1:35000\n"));
         assert!(reports_listening(b"listening on 127.0.0.1:35000\n"));
         assert!(!reports_listening(
-            b"obd-bridge: Only one usage of each socket address is normally permitted\n"
+            b"dangle: Only one usage of each socket address is normally permitted\n"
         ));
         assert!(!reports_listening(b"not bound\n"));
         assert!(!reports_listening(b"listening on 127.0.0.1:9\n"));

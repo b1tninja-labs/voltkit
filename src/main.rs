@@ -324,6 +324,12 @@ fn hex_id(text: &str) -> Result<u16, String> {
 }
 
 fn open_profile(target: &str, baud: Option<u32>) -> Result<Session, String> {
+    if let Some(address) = voltkit::detect::parse_ble_target(target) {
+        if baud.is_some() {
+            return Err(USAGE.to_string());
+        }
+        return open_ble(address);
+    }
     if target.contains(':') {
         if baud.is_some() {
             return Err(USAGE.to_string());
@@ -343,4 +349,19 @@ fn open_profile(target: &str, baud: Option<u32>) -> Result<Session, String> {
         let _ = (port, baud);
         Err("profile serial is Windows only".to_string())
     }
+}
+
+/// Open a native BLE dongle at `address` over the host radio.
+///
+/// The real transport is Windows + the `ble` feature (the only BLE backend voltkit
+/// has). A build without it still has to compile, so it reports that it was built
+/// without BLE support, the way the VCX path reports a missing feature.
+#[cfg(all(windows, feature = "ble"))]
+fn open_ble(address: u64) -> Result<Session, String> {
+    Session::connect_ble(address).map_err(|e| e.to_string())
+}
+
+#[cfg(not(all(windows, feature = "ble")))]
+fn open_ble(_address: u64) -> Result<Session, String> {
+    Err("voltkit was built without BLE support".to_string())
 }

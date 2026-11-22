@@ -20,7 +20,7 @@
   <text class="t lb" x="34" y="100" font-size="12">ADAPTERS</text>
   <g font-size="15">
     <rect class="bx" x="32" y="110" width="232" height="56" rx="10"/>
-    <text class="t nm" x="48" y="135">OBDLink MX</text><text class="t sb" x="48" y="153" font-size="12">Bluetooth LE · FFF0 · via obd-bridge</text>
+    <text class="t nm" x="48" y="135">OBDLink MX</text><text class="t sb" x="48" y="153" font-size="12">Bluetooth LE · FFF0 · native host radio</text>
     <rect class="bx" x="32" y="178" width="232" height="56" rx="10"/>
     <text class="t nm" x="48" y="203">VCX-NANO / VXDIAG</text><text class="t sb" x="48" y="221" font-size="12">USB serial · vcxtoolkit</text>
     <rect class="bx" x="32" y="246" width="232" height="56" rx="10"/>
@@ -35,7 +35,7 @@
   <g font-size="13.5">
     <rect class="bx" x="332" y="192" width="280" height="36" rx="8"/><text class="t nm" x="348" y="215">udskit · UDS / GMLAN model</text>
     <rect class="bx" x="332" y="236" width="280" height="36" rx="8"/><text class="t nm" x="348" y="259">fakeobd · lab peer</text>
-    <rect class="bx" x="332" y="280" width="280" height="36" rx="8"/><text class="t nm" x="348" y="303">obd-bridge · BLE to TCP</text>
+    <rect class="bx" x="332" y="280" width="280" height="36" rx="8"/><text class="t nm" x="348" y="303">dangle · native host-radio BLE</text>
     <rect class="bx wip" x="332" y="324" width="280" height="36" rx="8"/><text class="t nm" x="348" y="347">vcxtoolkit · VCX driver <tspan fill="#f59e0b">— in progress</tspan></text>
     <rect class="bx wip" x="332" y="368" width="280" height="30" rx="8"/><text class="t nm" x="348" y="388">spskit · VIT1 builder <tspan fill="#f59e0b">— in progress</tspan></text>
   </g>
