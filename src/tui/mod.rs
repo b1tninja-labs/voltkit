@@ -413,15 +413,19 @@ fn run_read(port: u32, backend: stage::Backend) -> Result<String, String> {
             vec!["--port".to_string(), port.to_string()],
         ),
     };
-    let output = std::process::Command::new(&exe)
-        .args(&args)
-        .output()
-        .map_err(|error| {
-            format!(
-                "could not launch {} ({error}). It should sit next to voltkit.exe.",
-                exe.display()
-            )
-        })?;
+    let mut command = std::process::Command::new(&exe);
+    command.args(&args);
+    // Run from the tool's own directory, so a 32-bit vendor DLL's sibling DLLs resolve
+    // and the session log lands beside the tool.
+    if let Some(dir) = exe.parent() {
+        command.current_dir(dir);
+    }
+    let output = command.output().map_err(|error| {
+        format!(
+            "could not launch {} ({error}). It should sit next to voltkit.exe.",
+            exe.display()
+        )
+    })?;
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !stderr.trim().is_empty() {
