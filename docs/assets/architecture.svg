@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 448" width="940" height="448" role="img" aria-label="voltkit architecture">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <style>
+    .t  { font-family: "Segoe UI", system-ui, Helvetica, Arial, sans-serif; }
+    .hd { fill:#e2e8f0; font-weight:700; }
+    .lb { fill:#94a3b8; font-weight:600; letter-spacing:1.5px; }
+    .bx { fill:#1e293b; stroke:#334155; stroke-width:1.5; }
+    .nm { fill:#e2e8f0; font-weight:600; }
+    .sb { fill:#94a3b8; }
+    .wip{ stroke:#f59e0b; stroke-dasharray:5 4; }
+  </style>
+  <rect x="2" y="2" width="936" height="444" rx="18" fill="#0f172a" stroke="#1e293b" stroke-width="2"/>
+  <text class="t hd" x="32" y="42" font-size="22">voltkit · architecture</text>
+  <text class="t sb" x="32" y="64" font-size="13">the read-only owner's front-end; the rest of the stack are sibling Rust crates and peer processes</text>
+
+  <text class="t lb" x="34" y="100" font-size="12">ADAPTERS</text>
+  <g font-size="15">
+    <rect class="bx" x="32" y="110" width="232" height="56" rx="10"/>
+    <text class="t nm" x="48" y="135">OBDLink MX</text><text class="t sb" x="48" y="153" font-size="12">Bluetooth LE · FFF0 · via obd-bridge</text>
+    <rect class="bx" x="32" y="178" width="232" height="56" rx="10"/>
+    <text class="t nm" x="48" y="203">VCX-NANO / VXDIAG</text><text class="t sb" x="48" y="221" font-size="12">USB serial · vcxtoolkit</text>
+    <rect class="bx" x="32" y="246" width="232" height="56" rx="10"/>
+    <text class="t nm" x="48" y="271">Wi-Fi ELM327</text><text class="t sb" x="48" y="289" font-size="12">TCP</text>
+    <rect class="bx" x="32" y="314" width="232" height="56" rx="10"/>
+    <text class="t nm" x="48" y="339">fakeobd</text><text class="t sb" x="48" y="357" font-size="12">lab peer · loopback TCP / ISO-TP</text>
+  </g>
+
+  <rect x="312" y="110" width="320" height="300" rx="14" fill="#111c33" stroke="#38bdf8" stroke-width="2"/>
+  <text class="t hd" x="332" y="150" font-size="26">voltkit</text>
+  <text class="t sb" x="332" y="174" font-size="13">wizard · CLI · read-only ($27 refused)</text>
+  <g font-size="13.5">
+    <rect class="bx" x="332" y="192" width="280" height="36" rx="8"/><text class="t nm" x="348" y="215">udskit · UDS / GMLAN model</text>
+    <rect class="bx" x="332" y="236" width="280" height="36" rx="8"/><text class="t nm" x="348" y="259">fakeobd · lab peer</text>
+    <rect class="bx" x="332" y="280" width="280" height="36" rx="8"/><text class="t nm" x="348" y="303">obd-bridge · BLE to TCP</text>
+    <rect class="bx wip" x="332" y="324" width="280" height="36" rx="8"/><text class="t nm" x="348" y="347">vcxtoolkit · VCX driver <tspan fill="#f59e0b">— in progress</tspan></text>
+    <rect class="bx wip" x="332" y="368" width="280" height="30" rx="8"/><text class="t nm" x="348" y="388">spskit · VIT1 builder <tspan fill="#f59e0b">— in progress</tspan></text>
+  </g>
+
+  <text class="t lb" x="676" y="100" font-size="12">CAPTURE &#8594; USES</text>
+  <g font-size="15">
+    <rect class="bx" x="676" y="110" width="232" height="60" rx="10" stroke="#34d399"/>
+    <text class="t nm" x="692" y="136">saved module read</text><text class="t sb" x="692" y="155" font-size="12">ecu / did / lid  (--clone)</text>
+    <rect class="bx" x="676" y="214" width="232" height="60" rx="10"/>
+    <text class="t nm" x="692" y="240">fakeobd replay</text><text class="t sb" x="692" y="259" font-size="12">realistic virtual adapters</text>
+    <rect class="bx wip" x="676" y="318" width="232" height="60" rx="10"/>
+    <text class="t nm" x="692" y="344">spskit &#8594; VIT1</text><text class="t sb" x="692" y="363" font-size="12">SPS clone &#183; in progress</text>
+  </g>
+
+  <line x1="266" y1="240" x2="310" y2="240" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="634" y1="150" x2="674" y2="140" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="792" y1="172" x2="792" y2="212" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="792" y1="276" x2="792" y2="316" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+</svg>
