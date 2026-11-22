@@ -378,7 +378,7 @@ fn vcx_devices(serial: &[Device]) -> Vec<Device> {
             out.push(Device::new(
                 format!("{}  (VCX-NANO on COM{port})", info.hw_name),
                 format!(
-                    "Phase 2 — programming-data staging. firmware {}.{}.{}.{}, {} — doctor only, live SPS read gated",
+                    "Phase 2 — live VCX identity read ($3E/$1A, read-only). firmware {}.{}.{}.{}, {} — pick native or vendor backend",
                     info.fw_version[0],
                     info.fw_version[1],
                     info.fw_version[2],
