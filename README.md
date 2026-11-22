@@ -36,24 +36,26 @@ features — so a real build carries only what it needs.
 ## Features
 
 - **Read-only by design** — `$27` and every write service are refused before the socket write; only `01/03/1A/22` are sent.
-- **Detect & select the adapter** — `voltkit wizard` lists the adapters it finds — COM ports by their friendly name, a VCX-NANO by model and firmware, an OBDLink **MX** seen over Bluetooth, a remembered Wi-Fi target — and you pick one. No typing `COM5`.
+- **Detect & select the adapter** — `voltkit wizard` lists the adapters it finds — COM ports by their friendly name, a VCX-NANO by model and firmware, an OBDLink **MX** found natively over the host Bluetooth radio, a remembered Wi-Fi target — and you pick one. No typing `COM5`.
 - **Guided clone, auto-written** — pick an adapter, pick a capture, and voltkit runs the reads and writes the `fakeobd` profile for you, named from the job and the time, **outside** the repository. You never type a `--set` or a profile path.
 - **Live gauges** — six scaled `$22` reads (state of charge, temperatures, range) printed from the adapter.
 - **VIN shape check** — validates a 2016–2019 US Volt / Bolt EV VIN against GM's NHTSA filings (check digit + card).
-- **Adapter paths** — a Wi-Fi/USB ELM327, a Windows COM port, an OBDLink **MX** reached through a managed `obd-bridge`, or the **VCX-NANO** over USB (identify-only for now).
+- **Adapter paths** — a Wi-Fi/USB ELM327, a Windows COM port, an OBDLink **MX** over native host Bluetooth (in-process, no bridge process), or the **VCX-NANO** over USB (identify-only for now).
 - **Lean builds** — the shared UDS model is linked; the VCX driver is a Windows-gated default feature and the lab/emulation peer is an optional one, so a real build carries only what it needs.
 
 ## Quickstart
 
 > **Build prerequisite:** voltkit has path dependencies on sibling crates. Cargo resolves every
-> declared path dependency even when its feature is off, so clone **`udskit`**, **`vcxtoolkit`**, and
-> **`fakeobd`** into the same parent directory first, or the build won't resolve. Only `udskit` is
-> compiled into a default Linux build; `vcxtoolkit` is compiled on Windows (the default `vcx`
-> feature); `fakeobd` is compiled only with `--features lab`.
+> declared path dependency even when its feature is off, so clone **`udskit`**, **`vcxtoolkit`**,
+> **`dangle`**, and **`fakeobd`** into the same parent directory first, or the build won't resolve.
+> Only `udskit` is compiled into a default Linux build; `vcxtoolkit` (the default `vcx` feature) and
+> `dangle` (the default `ble` feature, native host-radio BLE) are compiled on Windows; `fakeobd` is
+> compiled only with `--features lab`.
 
 ```bash
 git clone https://github.com/b1tninja-labs/udskit
 git clone https://github.com/b1tninja-labs/vcxtoolkit
+git clone https://github.com/b1tninja/dangle
 git clone https://github.com/b1tninja-labs/fakeobd
 git clone https://github.com/b1tninja-labs/voltkit
 cd voltkit
@@ -79,9 +81,9 @@ COM port, `--set`, or path.
 a `fakeobd` profile.
 
 - **COM ports** are listed with their friendly USB name (so you recognise the OBDLink from the mouse).
-- **An OBDLink MX** found over Bluetooth is one selectable entry. Pick it and voltkit manages
-  `obd-bridge` under the hood — it spawns the bridge, waits for it, and captures through it. You never
-  run `obd-bridge` yourself.
+- **An OBDLink MX** found over Bluetooth is one selectable entry. Pick it and voltkit opens the dongle
+  natively over the host Bluetooth radio, in-process — no bridge process is spawned and no TCP socket
+  is used. The ELM327 session runs straight over the radio.
 - **A Wi-Fi/TCP** target you used before is remembered and offered; manual entry is always there as a
   fallback.
 
@@ -116,7 +118,7 @@ belong **outside** the repository.
 | `voltkit gauges --host 127.0.0.1:<port>` | Print six scaled `$22` gauge fields (loopback only). |
 | `voltkit <host:port>` | Run the trial read session against a loopback ELM327-over-TCP peer. |
 | `voltkit lab` | Start the `fakeobd` lab peer on `127.0.0.1:35000` and dial it (or, with `--features lab`, serve it in-process). |
-| `voltkit bench` | Start `obd-bridge --name OBDLink` (a real BLE adapter → TCP) and dial it; the wizard does this for you when you pick an MX. |
+| `voltkit bench` | Optional bring-the-bridge path: start the `dangle --name OBDLink` TCP bridge and dial it (for example to reach the radio from an emulator). The wizard itself opens an MX natively, in-process. |
 
 Depth on the capture sets, the clone format, and the programming-read fields is in
 [docs/capture.md](docs/capture.md); who owns what in the stack is in
@@ -140,14 +142,14 @@ voltkit is a read client and nothing more:
 
 ## Roadmap
 
-voltkit links `udskit`, detects and selects adapters in the wizard, and manages `obd-bridge` for the
-MX path. What landed and what is still ahead:
+voltkit links `udskit`, detects and selects adapters in the wizard, and opens an OBDLink MX natively
+over the host Bluetooth radio. What landed and what is still ahead:
 
-- **Adapter drivers as Cargo features** — *done.* `vcx` (the VCX-NANO via `vcxtoolkit`) is **on by default** (Windows-gated, so the Linux build stays lean); `lab` (the `fakeobd` emulation peer, now linked as a library for an in-process bench) is optional and **off** in real builds.
-- **Detect & select in the wizard** — *done.* COM ports with friendly names, a VCX-NANO identified by GetInfo, and MX devices from `obd-bridge scan`, presented as a pick list with auto-written profiles. A registered J2534 pass-through stays a greyed option until the SAE J2534 spec is sourced (it is not in primarysource).
+- **Adapter drivers as Cargo features** — *done.* `vcx` (the VCX-NANO via `vcxtoolkit`) and `ble` (native host-radio BLE via `dangle`) are **on by default** (both Windows-gated, so the Linux build stays lean); `lab` (the `fakeobd` emulation peer, now linked as a library for an in-process bench) is optional and **off** in real builds.
+- **Detect & select in the wizard** — *done.* COM ports with friendly names, a VCX-NANO identified by GetInfo, and MX devices found natively over the host Bluetooth radio, presented as a pick list with auto-written profiles. A registered J2534 pass-through stays a greyed option until the SAE J2534 spec is sourced (it is not in primarysource).
 - **Two-phase flow** — *done.* Phase 1 is the ELM module clone; Phase 2 identifies the VCX-NANO (safe doctor) and **stages** a gated spskit-compatible skeleton of the programming-data read.
+- **Native host-OS BLE** — *done.* An OBDLink MX is scanned and opened natively over the host Bluetooth radio, in-process through the `dangle` library (WinRT GATT) — no spawned process and no TCP hop. `dangle`'s TCP bridge binary stays available as the optional `voltkit bench` path.
 - **VCX live capture** — *ahead (held).* Phase 2 stages the collect but does not run it — vcxtoolkit's live `collect` stays gated (the `VCX_PRO_Recv` byte layout is not recovered), awaiting owner sign-off.
-- **Native host-OS BLE** — *ahead.* The MX path still goes through the `obd-bridge` process. Dropping that hop needs obd-bridge to expose a BLE library crate (it is bin-only today) or voltkit's own WinRT BLE.
 - **Rust `spskit`** — *ahead.* The SPS / VIT1 request builder ported to Rust so voltkit links it directly instead of shelling out.
 
 ## For contributors & agents
@@ -161,7 +163,7 @@ or a stub binary and never open a real adapter or need a vehicle.
 
 `Cargo.toml` sets `publish = false` — voltkit is distributed as GitHub Release binaries, not on
 crates.io. Pushing a `v*.*.*` tag runs `.github/workflows/release.yml`, which checks out voltkit and
-its `udskit` / `vcxtoolkit` / `fakeobd` siblings, runs `cargo fmt --check` / `cargo clippy
+its `udskit` / `vcxtoolkit` / `dangle` / `fakeobd` siblings, runs `cargo fmt --check` / `cargo clippy
 --all-targets -- -D warnings` / `cargo test` / `cargo doc --no-deps` on Ubuntu and Windows, and
 attaches two binaries plus `SHA256SUMS`:
 

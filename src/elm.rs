@@ -1,11 +1,18 @@
-//! Carriage-return ELM327 session over TCP.
+//! Carriage-return ELM327 session over TCP, a Windows serial port, or native BLE.
 //!
 //! The datasheet terminates a command with a carriage return and ends a reply at the
-//! `>` prompt. Bytes of value 0 are ignored on the way in.
+//! `>` prompt. Bytes of value 0 are ignored on the way in. The BLE transport opens an
+//! OBDLink MX (or any FFF0-style dongle) in-process over the host Bluetooth radio
+//! through the `dangle` library and drives the same session over its byte pipe.
 
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
+
+#[cfg(all(windows, feature = "ble"))]
+use std::collections::VecDeque;
+#[cfg(all(windows, feature = "ble"))]
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 
 /// What a request line is allowed to be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,7 +90,8 @@ pub struct Reply {
 
 /// A connected ELM327 session.
 ///
-/// The stream is a TCP socket or, on Windows, a serial adapter.
+/// The stream is a TCP socket, a Windows serial adapter, or a native BLE dongle
+/// opened over the host radio.
 pub struct Session {
     link: Link,
 }
@@ -98,6 +106,57 @@ enum Link {
     Tcp(TcpStream),
     #[cfg(windows)]
     Serial(Box<dyn serialport::SerialPort>),
+    #[cfg(all(windows, feature = "ble"))]
+    Ble(BleTransport),
+}
+
+/// A BLE dongle opened over the host radio: the `dangle` byte sink paired with the
+/// receiver of the bytes it notifies back, plus a buffer of bytes not yet consumed
+/// by the current read.
+///
+/// The ELM327 session is byte-oriented (write a line, read to the `>` prompt), so the
+/// chunked GATT notifications are reassembled through `pending` the same way a socket
+/// read would hand back a partial buffer.
+#[cfg(all(windows, feature = "ble"))]
+struct BleTransport {
+    serial: dangle::BleSerial,
+    rx: Receiver<Vec<u8>>,
+    pending: VecDeque<u8>,
+    timeout: Duration,
+}
+
+#[cfg(all(windows, feature = "ble"))]
+impl BleTransport {
+    /// Write `data` to the dongle, split into MTU-sized GATT writes by `dangle`.
+    fn write_all(&self, data: &[u8]) -> io::Result<()> {
+        use dangle::SerialLink as _;
+        self.serial
+            .write(data)
+            .map_err(|err| io::Error::other(err.to_string()))
+    }
+
+    /// Fill `out` from the bytes the dongle has notified, waiting up to `timeout` for
+    /// the next chunk. `Ok(0)` signals the connection dropped, which the reader treats
+    /// as the peer closing before the prompt.
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if self.pending.is_empty() {
+            match self.rx.recv_timeout(self.timeout) {
+                Ok(chunk) => self.pending.extend(chunk),
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "no reply from the BLE adapter before the timeout",
+                    ));
+                }
+                Err(RecvTimeoutError::Disconnected) => return Ok(0),
+            }
+        }
+        let n = out.len().min(self.pending.len());
+        for slot in out.iter_mut().take(n) {
+            *slot = self.pending.pop_front().unwrap_or(0);
+        }
+        Ok(n)
+    }
 }
 
 impl Session {
@@ -152,6 +211,32 @@ impl Session {
         })
     }
 
+    /// Open an OBDLink MX (or any FFF0-style BLE serial dongle) natively over the host
+    /// Bluetooth radio at the 48-bit Bluetooth `address`.
+    ///
+    /// The dongle is opened in-process through the `dangle` library (WinRT GATT, the
+    /// `FFF0` serial profile) and the ELM327 session runs straight over its byte pipe;
+    /// no process is spawned and no socket is used. The session still refuses `$27` and
+    /// the write services before any byte is written.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the dongle cannot be reached, the serial service or a
+    /// characteristic is absent, or notifications cannot be enabled.
+    #[cfg(all(windows, feature = "ble"))]
+    pub fn connect_ble(address: u64) -> Result<Session, Error> {
+        let (serial, rx) = dangle::connect(address, &dangle::SerialConfig::default())
+            .map_err(|err| Error::Io(io::Error::other(err.to_string())))?;
+        Ok(Session {
+            link: Link::Ble(BleTransport {
+                serial,
+                rx,
+                pending: VecDeque::new(),
+                timeout: Duration::from_secs(5),
+            }),
+        })
+    }
+
     fn dial(sa: SocketAddr) -> Result<Session, Error> {
         let stream = TcpStream::connect_timeout(&sa, Duration::from_secs(3))?;
         stream.set_nodelay(true)?;
@@ -167,10 +252,15 @@ impl Session {
     ///
     /// Returns the socket error when the timeout cannot be set.
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
-        match &self.link {
+        match &mut self.link {
             Link::Tcp(stream) => stream.set_read_timeout(timeout),
             #[cfg(windows)]
             Link::Serial(_) => Ok(()),
+            #[cfg(all(windows, feature = "ble"))]
+            Link::Ble(ble) => {
+                ble.timeout = timeout.unwrap_or(Duration::from_secs(5));
+                Ok(())
+            }
         }
     }
 
@@ -249,6 +339,8 @@ impl Session {
             Link::Tcp(stream) => stream.write_all(buf),
             #[cfg(windows)]
             Link::Serial(port) => port.write_all(buf),
+            #[cfg(all(windows, feature = "ble"))]
+            Link::Ble(ble) => ble.write_all(buf),
         }
     }
 
@@ -260,6 +352,8 @@ impl Session {
                 Link::Tcp(stream) => stream.read(&mut buf)?,
                 #[cfg(windows)]
                 Link::Serial(port) => port.read(&mut buf)?,
+                #[cfg(all(windows, feature = "ble"))]
+                Link::Ble(ble) => ble.read(&mut buf)?,
             };
             if n == 0 {
                 return Err(io::Error::new(

@@ -1,9 +1,10 @@
 # voltkit roadmap
 
 `voltkit` is the user interface for one car. The peer is a TCP ELM327, a Windows COM port, or an
-OBDLink MX reached through the `obd-bridge` process voltkit manages. `vcxtoolkit` (the VCX-NANO
-doctor) and `fakeobd` (the in-process bench) are optional, feature-gated library links; `obd-bridge`
-and `spskit` stay separate processes. Rows are `Status | Obligation | Anchor | Test`, the grammar `projecthub sync`
+OBDLink MX opened natively over the host Bluetooth radio. `vcxtoolkit` (the VCX-NANO doctor),
+`dangle` (the native host-radio BLE library), and `fakeobd` (the in-process bench) are optional,
+feature-gated library links; `dangle`'s TCP-bridge binary (the optional `voltkit bench` path) and
+`spskit` stay separate processes. Rows are `Status | Obligation | Anchor | Test`, the grammar `projecthub sync`
 reads for Rust projects. This repository is registered there as tooling on 2026-11-21, public at
 <https://github.com/b1tninja-labs/voltkit>, with `publish = false`. These rows are the matrix
 that registration syncs.
@@ -34,14 +35,15 @@ Status:
 
 The wizard detects the adapters present and lets the operator select one, instead of typing a COM
 port, then auto-writes the profile outside the repository. The peer dependencies are optional Cargo
-features: `vcx` (the VCX-NANO doctor) on by default but Windows-gated, and `lab` (the in-process
-`fakeobd` bench) off by default. Cargo still resolves every path-dep manifest, so a build needs the
-siblings present even where it does not compile them; the default Linux binary links only `udskit`.
+features: `vcx` (the VCX-NANO doctor) and `ble` (native host-radio BLE via `dangle`) on by default
+but both Windows-gated, and `lab` (the in-process `fakeobd` bench) off by default. Cargo still
+resolves every path-dep manifest, so a build needs the siblings present even where it does not
+compile them; the default Linux binary links only `udskit`.
 
 | Status | Obligation | Anchor | Test |
 |---|---|---|---|
-| [ok] | Parse `obd-bridge scan` into advertisers and offer only the serial-service (MX) rows as managed BLE devices. voltkit spawns the bridge; it does not open the radio | `src/detect.rs`; `obd-bridge` README | `detect::a_scan_row_parses_into_an_advertiser`; `detect::only_the_serial_advertiser_becomes_a_managed_mx_device` |
-| [ok] | Turn a chosen adapter into a capture target (TCP, Windows COM, or the managed bridge on `127.0.0.1:35000`), and keep the gated VCX-NANO identify-only with no target | `src/detect.rs`; `AGENTS.md` | `detect::a_link_becomes_a_capture_target_except_the_gated_vcx`; `detect::the_menu_order_is_vcx_then_serial_then_ble_then_remembered` |
+| [ok] | Scan the host Bluetooth radio natively (`dangle::scan_advertisers`) and offer only the serial-service (MX) advertisers as BLE devices, each carrying its address. voltkit opens the radio in-process; it spawns no bridge | `src/detect.rs`; `dangle` README | `detect::a_serial_advertiser_becomes_a_native_ble_device`; `detect::a_ble_target_round_trips_through_its_address` |
+| [ok] | Turn a chosen adapter into a capture target (TCP, Windows COM, or a native `ble:<address>` dongle), and keep the gated VCX-NANO identify-only with no target | `src/detect.rs`; `AGENTS.md` | `detect::a_link_becomes_a_capture_target_except_the_gated_vcx`; `detect::the_menu_order_is_vcx_then_serial_then_ble_then_remembered` |
 | [ok] | Name the capture file from the job and the time, outside the repository, with no VIN in the name | `src/detect.rs`; `.gitignore` | `detect::the_capture_file_is_named_from_the_job_and_the_time`; `detect::timestamp_matches_known_dates` |
 | [ok] | Pick a capturable device or inform on a VCX-NANO, with manual entry as a fallback, in the full-screen UI | `src/tui/detect.rs` | `detect::a_capturable_device_is_picked_and_a_vcx_only_informs`; `detect::manual_and_rescan_sit_after_the_devices` |
 | [ok] | Build without the `vcx` feature (or off Windows): the VCX probe is empty and the wizard falls back gracefully | `Cargo.toml`; `src/detect.rs` | `detect::without_the_vcx_feature_the_probe_is_empty` |
@@ -53,7 +55,7 @@ siblings present even where it does not compile them; the default Linux binary l
 | Status | Obligation | Anchor | Test |
 |---|---|---|---|
 | [ok] | Offer the lab peer: start `fakeobd serve` on `127.0.0.1:35000` and dial it. fakeobd admits the read set and refuses `$27`. It has no serial or Bluetooth server | `fakeobd` `serve`; `crates/obd-policy` | `lab::serve_listens_on_127_0_0_1_35000`; `the_lab_command_starts_fakeobd_serve_on_127_0_0_1_35000_and_dials_it` |
-| [ok] | Offer the bench peer: start `obd-bridge --name OBDLink` and dial `127.0.0.1:35000`. An OBDLink MX is that BLE ELM327 when it advertises the FFF0 serial service. voltkit does not open the radio | `obd-bridge` README | `bench::bridge_args_are_name_obdlink_and_the_socket_is_127_0_0_1_35000`; `bench::only_a_listening_line_for_this_socket_names_the_bench_peer`; `the_bench_command_starts_obd_bridge_named_obdlink_and_dials_127_0_0_1_35000`; `bench_does_not_dial_a_listener_already_bound_on_127_0_0_1_35000` |
+| [ok] | Offer the optional bench peer: start the `dangle --name OBDLink` TCP bridge and dial `127.0.0.1:35000`. This is the bring-the-bridge path beside the wizard's native BLE; the wizard itself opens the radio in-process | `dangle` README | `bench::bridge_args_are_name_obdlink_and_the_socket_is_127_0_0_1_35000`; `bench::only_a_listening_line_for_this_socket_names_the_bench_peer`; `the_bench_command_starts_dangle_named_obdlink_and_dials_127_0_0_1_35000`; `bench_does_not_dial_a_listener_already_bound_on_127_0_0_1_35000` |
 
 ## Peers the interface does not launch yet
 
@@ -63,5 +65,5 @@ siblings present even where it does not compile them; the default Linux binary l
 | [open] | A fake SPS peer that answers `getProgrammingData` from a saved body. No `fakesps` directory exists. A shell is not created until a captured exchange is the contract | searched `D:\code` 2026-11-21 | none |
 | [ok] | Identify a VCX-NANO in the wizard with vcxtoolkit's `open_usb` + GetInfo doctor (model, firmware), retried, on Windows with the `vcx` feature, and stage the gated SPS skeleton from it. Do not send a vehicle read — the live `collect` stays gated in vcxtoolkit | `vcxtoolkit` README; `docs/tool-boundary.md`; `src/detect.rs`; `src/stage.rs` | `detect::a_com_name_yields_its_number` (the port the doctor probes); `stage::the_skeleton_is_gated_json_with_empty_values`; hardware GetInfo stays `#[ignore]` in `vcxtoolkit` |
 | [open] | Run the live SPS collect through the VCX-NANO (the gated read), not only stage it. The `VCX_PRO_Recv` byte layout is not recovered, so the wizard stages the skeleton and holds the read for owner sign-off | `vcxtoolkit` README; `src/stage.rs` | none |
-| [open] | Native host-OS BLE inside voltkit, dropping the `obd-bridge` hop. Needs obd-bridge to expose a BLE library crate (bin-only today) or voltkit's own WinRT BLE | `obd-bridge` README | none |
+| [ok] | Native host-OS BLE inside voltkit, dropping the bridge hop: scan and connect to the dongle over the host radio in-process (no spawned process, no TCP socket), driving the ELM327 session over the returned byte pipe. Linked through the `dangle` BLE library (the `ble` feature) | `dangle` README; `src/elm.rs`; `src/detect.rs` | `detect::a_serial_advertiser_becomes_a_native_ble_device`; `detect::a_ble_target_round_trips_through_its_address` |
 | [no] | Install or register a J2534 pass-through DLL. `vcxtoolkit` has no `cdylib`, no `PassThru*` export, and no `PassThruSupport.04.04` writer. SAE J2534 is not in primarysource, so it stays a greyed, unbuilt option | `vcxtoolkit/docs/tool-boundary.md` | none: the fifteen exports stay unbuilt |

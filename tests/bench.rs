@@ -1,5 +1,5 @@
 //! `voltkit bench` against a stub binary. Nothing here opens a serial port,
-//! a Bluetooth radio, a vehicle, or the obd-bridge tree.
+//! a Bluetooth radio, a vehicle, or the dangle tree.
 
 mod common;
 
@@ -20,9 +20,9 @@ fn main() {
         recorded.push_str(&arg);
         recorded.push('\n');
     }
-    if let Ok(listen) = std::env::var("OBD_BRIDGE_LISTEN") {
+    if let Ok(listen) = std::env::var("DANGLE_LISTEN") {
         if !listen.is_empty() {
-            recorded.push_str("OBD_BRIDGE_LISTEN=");
+            recorded.push_str("DANGLE_LISTEN=");
             recorded.push_str(&listen);
             recorded.push('\n');
         }
@@ -80,7 +80,7 @@ fn main() {
 "#;
 
 #[test]
-fn the_bench_command_starts_obd_bridge_named_obdlink_and_dials_127_0_0_1_35000() {
+fn the_bench_command_starts_dangle_named_obdlink_and_dials_127_0_0_1_35000() {
     let stub = stub_program();
     let _port = common::hold_35000();
     assert_port_free();
@@ -93,7 +93,7 @@ fn the_bench_command_starts_obd_bridge_named_obdlink_and_dials_127_0_0_1_35000()
         .arg("bench")
         .env("VOLTKIT_BENCH_PEER", &stub)
         .env("VOLTKIT_BENCH_STUB_LOG", &log)
-        .env("OBD_BRIDGE_LISTEN", "127.0.0.1:9")
+        .env("DANGLE_LISTEN", "127.0.0.1:9")
         .output()
         .unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();

@@ -33,11 +33,12 @@ jobs:
 
       # voltkit has path dependencies on sibling crates, the same `../sibling` layout the D:\code
       # workspace uses locally. Cargo resolves every declared path dependency's manifest even when
-      # the owning feature is off and even on a platform that will not compile it, so all three
+      # the owning feature is off and even on a platform that will not compile it, so all four
       # siblings are checked out beside voltkit on both OSes. What stays lean is the *compiled*
-      # graph: the Linux default build links only udskit (vcxtoolkit is `cfg(windows)`, fakeobd is
-      # behind the off-by-default `lab` feature); the Windows default build also links vcxtoolkit.
-      # All repos are public, so the default token is enough.
+      # graph: the Linux default build links only udskit (vcxtoolkit and dangle are `cfg(windows)`,
+      # fakeobd is behind the off-by-default `lab` feature); the Windows default build also links
+      # vcxtoolkit and dangle (the native BLE radio library). All repos are public, so the default
+      # token is enough.
       - name: check out the udskit path dependency
         uses: actions/checkout@v4
         with:
@@ -49,6 +50,12 @@ jobs:
         with:
           repository: b1tninja-labs/vcxtoolkit
           path: vcxtoolkit
+
+      - name: check out the dangle path dependency (native BLE radio, Windows-gated)
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja/dangle
+          path: dangle
 
       - name: check out the fakeobd path dependency (lab feature, off by default)
         uses: actions/checkout@v4

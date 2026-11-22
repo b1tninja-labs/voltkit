@@ -30,7 +30,7 @@ jobs:
           path: voltkit
 
       # Beside voltkit so the `../sibling` path dependencies resolve (see ci.yml for why all
-      # three are needed even where they are not compiled).
+      # four are needed even where they are not compiled).
       - name: check out the udskit path dependency
         uses: actions/checkout@v4
         with:
@@ -42,6 +42,12 @@ jobs:
         with:
           repository: b1tninja-labs/vcxtoolkit
           path: vcxtoolkit
+
+      - name: check out the dangle path dependency (native BLE radio, Windows-gated)
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja/dangle
+          path: dangle
 
       - name: check out the fakeobd path dependency
         uses: actions/checkout@v4
@@ -98,8 +104,8 @@ jobs:
           path: voltkit
 
       # Beside voltkit so the `../sibling` path dependencies resolve (see ci.yml). The release
-      # binary links only udskit on Linux and udskit + vcxtoolkit on Windows; fakeobd is present
-      # for resolution but not compiled into a default build.
+      # binary links only udskit on Linux and udskit + vcxtoolkit + dangle on Windows; fakeobd is
+      # present for resolution but not compiled into a default build.
       - name: check out the udskit path dependency
         uses: actions/checkout@v4
         with:
@@ -111,6 +117,12 @@ jobs:
         with:
           repository: b1tninja-labs/vcxtoolkit
           path: vcxtoolkit
+
+      - name: check out the dangle path dependency (native BLE radio, Windows-gated)
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja/dangle
+          path: dangle
 
       - name: check out the fakeobd path dependency
         uses: actions/checkout@v4

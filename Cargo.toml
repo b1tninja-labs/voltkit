@@ -12,8 +12,16 @@ description = "Read-only GM Volt/Bolt diagnostic client: ELM327 (serial/Wi-Fi/BL
 # every line that touches it is `#[cfg(all(windows, feature = "vcx"))]`, so the
 # default build on Linux carries nothing extra and a Windows build without the
 # feature falls back to a "built without VCX support" message.
-default = ["vcx"]
+#
+# `ble` is on by default too: an OBDLink MX (and any FFF0-style BLE serial
+# dongle) is reached natively over the host Bluetooth radio through the `dangle`
+# library — no spawned process, no TCP hop. The `dangle` dependency is Windows-
+# only (below) and every line that touches it is `#[cfg(all(windows, feature =
+# "ble"))]`, so the Linux default build carries nothing extra and a Windows build
+# without the feature falls back to a "built without BLE support" message.
+default = ["vcx", "ble"]
 vcx = ["dep:vcxtoolkit"]
+ble = ["dep:dangle"]
 # `lab` is off by default: it links the `fakeobd` library so `voltkit lab` can
 # serve an in-process vehicle without the `fakeobd` binary on PATH. A real build
 # does not want the emulator, so it stays out unless asked for. `elm` is the
@@ -29,6 +37,14 @@ serialport = "4.7"
 # VXDIAG dongle by model and firmware. Windows-only and optional; the live
 # vehicle read (`collect`) stays gated inside vcxtoolkit and is never called here.
 vcxtoolkit = { path = "../vcxtoolkit", version = "0.1.0", optional = true }
+# The native host-OS Bluetooth LE serial adapter: scans for and connects to an
+# OBDLink MX (or any FFF0-style BLE serial dongle) over the host radio, in-process
+# via WinRT GATT. voltkit drives the ELM327 session straight over the returned
+# byte pipe, so no `dangle`/bridge process is spawned and no TCP loopback is used
+# for BLE. Windows-only and optional; the crate forbids unsafe. voltkit sends only
+# reads over it ($01/$03/$1A/$22) — dangle is a dumb byte pipe and no write path
+# crosses this boundary.
+dangle = { path = "../dangle/crates/dangle", version = "0.1.0", optional = true }
 
 [lints.rust]
 unsafe_code = "forbid"
