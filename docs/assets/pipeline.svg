@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 232" width="940" height="232" role="img" aria-label="voltkit capture and clone pipeline">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <style>
+    .t { font-family: "Segoe UI", system-ui, Helvetica, Arial, sans-serif; }
+    .nm{ fill:#e2e8f0; font-weight:600; } .sb{ fill:#94a3b8; }
+    .bx{ fill:#1e293b; stroke:#334155; stroke-width:1.5; }
+  </style>
+  <rect x="2" y="2" width="936" height="228" rx="18" fill="#0f172a" stroke="#1e293b" stroke-width="2"/>
+  <text class="t nm" x="28" y="40" font-size="18">capture once &#183; replay and clone forever</text>
+
+  <g font-size="14">
+    <rect class="bx" x="28" y="86" width="150" height="62" rx="10"/>
+    <text class="t nm" x="46" y="112">GM Volt / Bolt</text><text class="t sb" x="46" y="132" font-size="12">owner's vehicle</text>
+
+    <rect class="bx" x="214" y="86" width="150" height="62" rx="10"/>
+    <text class="t nm" x="232" y="112">adapter</text><text class="t sb" x="232" y="132" font-size="12">MX (BLE) / VCX-NANO</text>
+
+    <rect class="bx" x="400" y="86" width="150" height="62" rx="10"/>
+    <text class="t nm" x="418" y="112">voltkit</text><text class="t sb" x="418" y="132" font-size="12">wizard · profile --clone</text>
+
+    <rect class="bx" x="586" y="86" width="166" height="62" rx="10" stroke="#34d399"/>
+    <text class="t nm" x="604" y="112">saved module read</text><text class="t sb" x="604" y="132" font-size="12">ecu / did / lid</text>
+
+    <rect class="bx" x="788" y="20" width="128" height="56" rx="10"/>
+    <text class="t nm" x="804" y="44">fakeobd</text><text class="t sb" x="804" y="63" font-size="12">bench replay</text>
+
+    <rect class="bx" x="788" y="158" width="128" height="56" rx="10" stroke="#f59e0b" stroke-dasharray="5 4"/>
+    <text class="t nm" x="804" y="182">spskit → VIT1</text><text class="t sb" x="804" y="201" font-size="12">SPS clone (wip)</text>
+  </g>
+
+  <g stroke="#64748b" stroke-width="2" fill="none">
+    <line x1="178" y1="117" x2="212" y2="117" marker-end="url(#arr2)"/>
+    <line x1="364" y1="117" x2="398" y2="117" marker-end="url(#arr2)"/>
+    <line x1="550" y1="117" x2="584" y2="117" marker-end="url(#arr2)"/>
+    <path d="M752 104 C 772 96, 772 60, 786 50" marker-end="url(#arr2)"/>
+    <path d="M752 130 C 772 140, 772 176, 786 186" marker-end="url(#arr2)"/>
+  </g>
+</svg>
