@@ -69,10 +69,19 @@ fn run() -> Result<(), String> {
     print_session(&first, session)
 }
 
+#[cfg(not(feature = "lab"))]
 fn lab() -> Result<(), String> {
     let program = voltkit::lab::program(std::env::var_os(voltkit::lab::PROGRAM_ENV));
     let mut peer = voltkit::lab::LabPeer::start(&program).map_err(|e| e.to_string())?;
     let session = peer.dial().map_err(|e| e.to_string())?;
+    print_session(voltkit::lab::ADDRESS, session)
+}
+
+// With the `lab` feature the bench is served in-process from the fakeobd library,
+// so no `fakeobd` binary has to be on PATH.
+#[cfg(feature = "lab")]
+fn lab() -> Result<(), String> {
+    let session = voltkit::lab::embed::start().map_err(|e| e.to_string())?;
     print_session(voltkit::lab::ADDRESS, session)
 }
 

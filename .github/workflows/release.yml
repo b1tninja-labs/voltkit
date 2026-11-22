@@ -29,12 +29,25 @@ jobs:
         with:
           path: voltkit
 
-      # Beside voltkit so the `../udskit` path dependency resolves (see ci.yml).
+      # Beside voltkit so the `../sibling` path dependencies resolve (see ci.yml for why all
+      # three are needed even where they are not compiled).
       - name: check out the udskit path dependency
         uses: actions/checkout@v4
         with:
           repository: b1tninja-labs/udskit
           path: udskit
+
+      - name: check out the vcxtoolkit path dependency
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/vcxtoolkit
+          path: vcxtoolkit
+
+      - name: check out the fakeobd path dependency
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/fakeobd
+          path: fakeobd
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -53,6 +66,9 @@ jobs:
 
       - name: test
         run: cargo test
+
+      - name: doc
+        run: cargo doc --no-deps
 
   build:
     name: build (${{ matrix.asset }})
@@ -81,12 +97,26 @@ jobs:
         with:
           path: voltkit
 
-      # Beside voltkit so the `../udskit` path dependency resolves (see ci.yml).
+      # Beside voltkit so the `../sibling` path dependencies resolve (see ci.yml). The release
+      # binary links only udskit on Linux and udskit + vcxtoolkit on Windows; fakeobd is present
+      # for resolution but not compiled into a default build.
       - name: check out the udskit path dependency
         uses: actions/checkout@v4
         with:
           repository: b1tninja-labs/udskit
           path: udskit
+
+      - name: check out the vcxtoolkit path dependency
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/vcxtoolkit
+          path: vcxtoolkit
+
+      - name: check out the fakeobd path dependency
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/fakeobd
+          path: fakeobd
 
       - uses: dtolnay/rust-toolchain@stable
         with:

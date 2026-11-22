@@ -96,6 +96,26 @@ impl BenchPeer {
     /// line, or does not accept [`ADDRESS`] once it has reported that it is
     /// listening.
     pub fn dial(&mut self) -> Result<Session, Error> {
+        self.wait_listening()?;
+        let session = Session::connect(ADDRESS)?;
+        if let Some(status) = self.child.try_wait()? {
+            return Err(exited(status));
+        }
+        Ok(session)
+    }
+
+    /// Wait until the peer reports it is listening on [`ADDRESS`], without dialing.
+    ///
+    /// The wizard spawns the bridge for a managed OBDLink MX capture and then lets
+    /// the capture itself be the one TCP client, so this waits for the listen line
+    /// but leaves the connection to the caller. The peer keeps running until this
+    /// value is dropped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the peer exits or closes stderr before it reports
+    /// that it is listening.
+    pub fn wait_listening(&mut self) -> Result<(), Error> {
         let stderr =
             self.child.stderr.take().ok_or_else(|| {
                 Error::Io(io::Error::other("bench peer stderr was already taken"))
@@ -107,7 +127,7 @@ impl BenchPeer {
                 return Err(exited(status));
             }
             match ready.recv_timeout(Duration::from_millis(50)) {
-                Ok(Ok(())) => break,
+                Ok(Ok(())) => return Ok(()),
                 Ok(Err(err)) => return Err(Error::Io(err)),
                 Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => continue,
                 Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
@@ -117,14 +137,6 @@ impl BenchPeer {
                 }
             }
         }
-        if let Some(status) = self.child.try_wait()? {
-            return Err(exited(status));
-        }
-        let session = Session::connect(ADDRESS)?;
-        if let Some(status) = self.child.try_wait()? {
-            return Err(exited(status));
-        }
-        Ok(session)
     }
 }
 
