@@ -181,7 +181,10 @@ pub fn ble_devices(adverts: &[BleAdvert]) -> Vec<Device> {
             let name = a.name.clone();
             Device::new(
                 format!("{name}  (Bluetooth LE)"),
-                format!("{} {}  — managed through obd-bridge", a.addr, a.rssi),
+                format!(
+                    "Phase 1 — module clone. {} {}  — managed through obd-bridge",
+                    a.addr, a.rssi
+                ),
                 Link::BleBridge { name },
             )
         })
@@ -321,7 +324,7 @@ pub fn assemble(
     if let Some(addr) = remembered {
         out.push(Device::new(
             format!("{addr}  (Wi-Fi / TCP)"),
-            "The remembered adapter address".to_string(),
+            "Phase 1 — module clone. The remembered adapter address".to_string(),
             Link::Tcp(addr.to_string()),
         ));
     }
@@ -344,7 +347,7 @@ fn serial_devices() -> Vec<Device> {
             };
             Device::new(
                 serial_label(&p.port_name, product.as_deref()),
-                "Serial / USB ELM327".to_string(),
+                "Phase 1 — module clone (ELM327 over serial/USB)".to_string(),
                 Link::Serial {
                     port: p.port_name.to_ascii_uppercase(),
                     baud: None,
@@ -381,11 +384,11 @@ fn vcx_devices(serial: &[Device]) -> Vec<Device> {
     };
     let mut out = Vec::new();
     for port in probe {
-        if let Some(info) = probe_vcx(port) {
+        if let Some(info) = vcx_doctor(port) {
             out.push(Device::new(
                 format!("{}  (VCX-NANO on COM{port})", info.hw_name),
                 format!(
-                    "firmware {}.{}.{}.{}, {} — identify only, live read gated",
+                    "Phase 2 — programming-data staging. firmware {}.{}.{}.{}, {} — doctor only, live SPS read gated",
                     info.fw_version[0],
                     info.fw_version[1],
                     info.fw_version[2],
@@ -407,9 +410,10 @@ fn vcx_devices(_serial: &[Device]) -> Vec<Device> {
 /// One GetInfo round-trip against a candidate VCX USB port, retried.
 ///
 /// This opens the USB serial port and sends the GetInfo request only. It never
-/// sends a vehicle read. `None` means no VCX-NANO answered.
+/// sends a vehicle read. `None` means no VCX-NANO answered. The SPS collect
+/// staging reuses this doctor; the live SPS read stays gated in vcxtoolkit.
 #[cfg(all(windows, feature = "vcx"))]
-fn probe_vcx(port: u32) -> Option<vcxtoolkit::DeviceInfo> {
+pub fn vcx_doctor(port: u32) -> Option<vcxtoolkit::DeviceInfo> {
     let device = vcxtoolkit::open_usb(port, 0).ok()?;
     for _ in 0..3 {
         if let Ok(frame) = vcxtoolkit::exchange(

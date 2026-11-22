@@ -70,13 +70,15 @@ the wizard. Capture **once**; the same file drives the bench emulation and the S
   <img src="docs/assets/pipeline.svg" alt="capture and clone pipeline" width="860">
 </p>
 
-**The guided path — `voltkit wizard`.** In a terminal the wizard is a full-screen UI: pick the
-capture, then pick the adapter from a detected list, and it runs the reads and writes the profile for
-you. You do not type a COM port, a `--set`, or a file path.
+**The guided path — `voltkit wizard`.** The wizard is a **two-phase, two-adapter** flow, because the
+OBDLink MX and the VCX-NANO collect different halves of the picture. In a terminal it is a full-screen
+UI: pick the capture, pick the adapter from a detected list, and it runs the reads for you — no typed
+COM port, `--set`, or path.
+
+**Phase 1 — module clone (ELM327-class):** the read-only `$1A`/`$22` module reads + gauges, written as
+a `fakeobd` profile.
 
 - **COM ports** are listed with their friendly USB name (so you recognise the OBDLink from the mouse).
-- **A VCX-NANO** is probed with vcxtoolkit's GetInfo doctor and shown by model and firmware. It is
-  *identify-only* for now: its live vehicle read stays gated (see the roadmap).
 - **An OBDLink MX** found over Bluetooth is one selectable entry. Pick it and voltkit manages
   `obd-bridge` under the hood — it spawns the bridge, waits for it, and captures through it. You never
   run `obd-bridge` yourself.
@@ -84,6 +86,14 @@ you. You do not type a COM port, a `--set`, or a file path.
   fallback.
 
 The profile is written to `~/voltkit-captures/volt-<job>-<timestamp>.profile`, outside any repository.
+
+**Phase 2 — programming data (VCX-NANO over USB):** the SPS / VIT1 read the ELM327 MX cannot reach
+(it needs the VCX pass-through). A VCX-NANO is detected, identified with vcxtoolkit's GetInfo doctor
+(model + firmware), and selected here. **The live SPS read is gated** — the `VCX_PRO_Recv` byte layout
+is not recovered — so Phase 2 today only runs the safe doctor and **stages** the collect: it writes a
+gated, spskit-compatible skeleton (`~/voltkit-captures/sps-collect-<serial>-<timestamp>.json`) listing
+the programming-data reads with empty values and a `gated` status. No vehicle read is sent; a later,
+ungated collect or spskit fills the values. The two captures together are the complete picture.
 
 **Power-user CLI.** The same capture is scriptable, for CI or a saved recipe:
 
@@ -135,7 +145,8 @@ MX path. What landed and what is still ahead:
 
 - **Adapter drivers as Cargo features** — *done.* `vcx` (the VCX-NANO via `vcxtoolkit`) is **on by default** (Windows-gated, so the Linux build stays lean); `lab` (the `fakeobd` emulation peer, now linked as a library for an in-process bench) is optional and **off** in real builds.
 - **Detect & select in the wizard** — *done.* COM ports with friendly names, a VCX-NANO identified by GetInfo, and MX devices from `obd-bridge scan`, presented as a pick list with auto-written profiles. A registered J2534 pass-through stays a greyed option until the SAE J2534 spec is sourced (it is not in primarysource).
-- **VCX live capture** — *ahead.* The wizard identifies a VCX-NANO (the safe GetInfo doctor) but does not yet read the vehicle through it; vcxtoolkit's live `collect` stays gated.
+- **Two-phase flow** — *done.* Phase 1 is the ELM module clone; Phase 2 identifies the VCX-NANO (safe doctor) and **stages** a gated spskit-compatible skeleton of the programming-data read.
+- **VCX live capture** — *ahead (held).* Phase 2 stages the collect but does not run it — vcxtoolkit's live `collect` stays gated (the `VCX_PRO_Recv` byte layout is not recovered), awaiting owner sign-off.
 - **Native host-OS BLE** — *ahead.* The MX path still goes through the `obd-bridge` process. Dropping that hop needs obd-bridge to expose a BLE library crate (it is bin-only today) or voltkit's own WinRT BLE.
 - **Rust `spskit`** — *ahead.* The SPS / VIT1 request builder ported to Rust so voltkit links it directly instead of shelling out.
 

@@ -6,6 +6,7 @@ mod confirm;
 mod detect;
 mod menu;
 mod progress;
+mod stage;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -25,6 +26,7 @@ enum Screen {
     Adapter,
     Confirm,
     Progress,
+    Stage,
 }
 
 struct App {
@@ -37,6 +39,7 @@ struct App {
     managed_bridge: bool,
     remembered: Option<String>,
     progress: progress::Progress,
+    stage: Option<stage::Stage>,
     pending_stdout: Option<String>,
     quit: bool,
 }
@@ -53,6 +56,7 @@ impl App {
             managed_bridge: false,
             remembered: None,
             progress: progress::Progress::new(String::new()),
+            stage: None,
             pending_stdout: None,
             quit: false,
         }
@@ -110,6 +114,11 @@ impl App {
                 }
             }
             Screen::Progress => self.progress.draw(frame, body),
+            Screen::Stage => {
+                if let Some(stage) = &self.stage {
+                    stage.draw(frame, body);
+                }
+            }
         }
     }
 
@@ -120,6 +129,7 @@ impl App {
             Screen::Adapter => self.on_adapter(code),
             Screen::Confirm => self.on_confirm(code),
             Screen::Progress => self.on_progress(code),
+            Screen::Stage => self.on_stage(code),
         }
     }
 
@@ -148,6 +158,31 @@ impl App {
                 self.screen = Screen::Adapter;
             }
             Some(DetectEvent::Picked(device)) => self.pick_device(&device),
+            Some(DetectEvent::Vcx(device)) => {
+                self.stage = Some(stage::Stage::new(&device));
+                self.screen = Screen::Stage;
+            }
+            None => {}
+        }
+    }
+
+    fn on_stage(&mut self, code: KeyCode) {
+        let Some(stage) = self.stage.as_mut() else {
+            self.screen = Screen::Detect;
+            return;
+        };
+        match stage.on_key(code) {
+            Some(stage::StageEvent::Run) => {
+                let dir = voltkit::detect::default_capture_dir();
+                let result =
+                    run_stage(stage.port, &dir, unix_secs()).map(|path| path.display().to_string());
+                stage.result = Some(result);
+            }
+            Some(stage::StageEvent::Back) => self.screen = Screen::Detect,
+            Some(stage::StageEvent::Done) => {
+                self.stage = None;
+                self.screen = Screen::Menu;
+            }
             None => {}
         }
     }
@@ -372,6 +407,21 @@ fn unix_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Run the Phase 2 VCX doctor and write the gated SPS skeleton.
+///
+/// The real staging is Windows + `vcx` only (where a VCX device can be detected).
+/// Off that build the call is never reachable from a real device, but it still
+/// has to compile, so it returns a clear message.
+#[cfg(all(windows, feature = "vcx"))]
+fn run_stage(port: u32, dir: &std::path::Path, secs: u64) -> Result<std::path::PathBuf, String> {
+    voltkit::stage::stage(port, dir, secs)
+}
+
+#[cfg(not(all(windows, feature = "vcx")))]
+fn run_stage(_port: u32, _dir: &std::path::Path, _secs: u64) -> Result<std::path::PathBuf, String> {
+    Err("VCX staging needs the vcx feature on Windows".to_string())
 }
 
 /// Spawn the managed obd-bridge and wait until it is listening.

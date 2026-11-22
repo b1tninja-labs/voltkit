@@ -23,8 +23,10 @@ pub enum DetectEvent {
     Back,
     /// Type an address by hand instead.
     Manual,
-    /// A capturable device was selected.
+    /// Phase 1: a capturable ELM adapter was selected for the module clone.
     Picked(Device),
+    /// Phase 2: a VCX-NANO was selected for the programming-data staging.
+    Vcx(Device),
 }
 
 /// The BLE scan bound. Short, so the picker is not slow; a rescan can be run.
@@ -129,12 +131,11 @@ impl Picker {
         }
         let device = self.devices.get(self.index)?.clone();
         if device.link.capturable() {
+            // Phase 1: an ELM adapter → module clone.
             Some(DetectEvent::Picked(device))
         } else {
-            // A VCX-NANO: identified, but its live read is gated. Show its detail
-            // and stay on the picker.
-            self.note = format!("{} — {}", device.label, device.detail);
-            None
+            // Phase 2: a VCX-NANO → programming-data staging (doctor + skeleton).
+            Some(DetectEvent::Vcx(device))
         }
     }
 
@@ -239,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn a_capturable_device_is_picked_and_a_vcx_only_informs() {
+    fn phase_1_picks_an_elm_adapter_and_phase_2_routes_a_vcx() {
         let mut picker = ready_picker(vec![
             device(
                 "COM5  OBDLink",
@@ -256,8 +257,10 @@ mod tests {
             other => panic!("{other:?}"),
         }
         picker.index = 1;
-        assert_eq!(picker.on_key(KeyCode::Enter), None);
-        assert!(picker.note.contains("VCX-NANO"));
+        match picker.on_key(KeyCode::Enter) {
+            Some(DetectEvent::Vcx(d)) => assert_eq!(d.link, Link::Vcx { port: 4 }),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

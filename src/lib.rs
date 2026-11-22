@@ -21,6 +21,7 @@ mod elm;
 mod gauges;
 pub mod lab;
 mod scan;
+pub mod stage;
 mod vin;
 pub mod wizard;
 
