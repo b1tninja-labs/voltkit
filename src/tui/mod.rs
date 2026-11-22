@@ -393,30 +393,27 @@ fn unix_secs() -> u64 {
 
 /// Run the Phase 2 live read with the chosen backend and return the tool's output.
 ///
-/// `Native` spawns our own `gmdiag vcx-read`; `Vendor` spawns the VXDIAG-DLL reader
-/// (`vcx-vendor-read`, our `vcikit-j2534` loader driving `VCXPT32.dll`). Both are
-/// read-only ($3E/$1A). The read touches hardware, so it is Windows-only; off that
-/// build it returns a clear message instead.
+/// Both backends run the SAME engine — `gmdiag vcx-read` — so the saved-read is
+/// identical; only the transport differs. `Native` uses the native VCX serial path;
+/// `Vendor` passes `--dll <VCXPT32.dll>`, so gmdiag drives the VXDIAG pass-through DLL
+/// through `vcikit-j2534`. Both are read-only ($3E/$1A) and Windows-only.
 #[cfg(windows)]
 fn run_read(port: u32, backend: stage::Backend) -> Result<String, String> {
-    let (exe, args) = match backend {
-        stage::Backend::Native => (
-            tool_path("gmdiag.exe"),
-            vec![
-                "vcx-read".to_string(),
-                "--port".to_string(),
-                port.to_string(),
-            ],
-        ),
-        stage::Backend::Vendor => (
-            vendor_tool_path("vcx-vendor-read.exe"),
-            vec!["--port".to_string(), port.to_string()],
-        ),
-    };
+    let exe = tool_path("gmdiag.exe");
+    let mut args = vec![
+        "vcx-read".to_string(),
+        "--port".to_string(),
+        port.to_string(),
+    ];
+    if let stage::Backend::Vendor = backend {
+        args.push("--dll".to_string());
+        args.push(vendor_dll_path().display().to_string());
+    }
     let mut command = std::process::Command::new(&exe);
     command.args(&args);
-    // Run from the tool's own directory, so a 32-bit vendor DLL's sibling DLLs resolve
-    // and the session log lands beside the tool.
+    // Run from gmdiag's own directory, so its session log lands beside it (the vendor
+    // DLL's own dependencies are resolved by vcikit-j2534's SetDllDirectory on the DLL's
+    // folder, so this does not depend on the cwd).
     if let Some(dir) = exe.parent() {
         command.current_dir(dir);
     }
@@ -451,15 +448,18 @@ fn tool_path(name: &str) -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(name))
 }
 
-/// Resolve the vendor reader, which lives beside the vendor DLLs in `vxdiag-j2534\`
-/// (so `VCXPT32.dll`'s sibling DLLs resolve), falling back to a sibling of this exe.
+/// The VXDIAG pass-through DLL the vendor backend loads, in `vxdiag-j2534\` next to this
+/// exe. gmdiag (via `vcikit-j2534`) adds that folder to the DLL search path, so the DLL's
+/// own siblings resolve regardless of the working directory.
 #[cfg(windows)]
-fn vendor_tool_path(name: &str) -> std::path::PathBuf {
+fn vendor_dll_path() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("vxdiag-j2534").join(name)))
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| tool_path(name))
+        .and_then(|exe| {
+            exe.parent()
+                .map(|dir| dir.join("vxdiag-j2534").join("VCXPT32.dll"))
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("vxdiag-j2534\\VCXPT32.dll"))
 }
 
 pub fn run() -> Result<(), String> {
