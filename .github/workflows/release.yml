@@ -20,7 +20,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Windows-only (voltkit is a Windows tool); the Linux leg is dropped.
+        os: [windows-latest]
     defaults:
       run:
         working-directory: voltkit
@@ -64,7 +65,6 @@ jobs:
           workspaces: voltkit
 
       - name: fmt
-        if: runner.os == 'Linux'
         run: cargo fmt --check
 
       - name: clippy

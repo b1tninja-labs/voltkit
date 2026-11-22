@@ -22,7 +22,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Windows-only: voltkit is a Windows tool (VCX-NANO + native BLE). There is no
+        # Linux platform for it, so the Linux leg is dropped.
+        os: [windows-latest]
     defaults:
       run:
         working-directory: voltkit
@@ -72,7 +74,6 @@ jobs:
           workspaces: voltkit
 
       - name: fmt
-        if: runner.os == 'Linux'
         run: cargo fmt --check
 
       - name: clippy
@@ -84,8 +85,7 @@ jobs:
       - name: doc
         run: cargo doc --no-deps
 
-      # Exercise the optional lab feature (links the fakeobd library) on one OS, so the
-      # in-process bench stays building. The default jobs above do not compile fakeobd.
+      # Exercise the optional lab feature (links the fakeobd library), so the in-process
+      # bench stays building. The default jobs above do not compile fakeobd.
       - name: lab feature
-        if: runner.os == 'Linux'
         run: cargo clippy --features lab --all-targets -- -D warnings
