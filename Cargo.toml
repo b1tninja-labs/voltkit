@@ -21,3 +21,8 @@ all = { level = "warn", priority = -1 }
 # The wizard's full-screen terminal. ratatui 0.30 asks the app to depend on crossterm itself.
 crossterm = "0.29"
 ratatui = { version = "0.30.2", features = ["crossterm"] }
+# The shared UDS (ISO 14229-1) / GMLAN model. voltkit reads one catalog for the service-id
+# framing, the +0x40 positive-response offset, the ReadDataByIdentifier codec, and the GMLAN
+# +0x400 addressing, instead of hand-rolling them beside gmdiag. Path dependency on the sibling
+# repo; no bus, no key material, no write service crosses this boundary.
+udskit = { path = "../udskit" }

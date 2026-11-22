@@ -21,14 +21,28 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: voltkit
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: voltkit
+
+      # Beside voltkit so the `../udskit` path dependency resolves (see ci.yml).
+      - name: check out the udskit path dependency
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/udskit
+          path: udskit
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: voltkit
 
       - name: fmt
         if: runner.os == 'Linux'
@@ -59,14 +73,28 @@ jobs:
             exe: voltkit
             asset: voltkit-x86_64-unknown-linux-gnu
             rustflags: ""
+    defaults:
+      run:
+        working-directory: voltkit
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: voltkit
+
+      # Beside voltkit so the `../udskit` path dependency resolves (see ci.yml).
+      - name: check out the udskit path dependency
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/udskit
+          path: udskit
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: voltkit
 
       - name: build
         env:
@@ -77,11 +105,13 @@ jobs:
         shell: bash
         run: ./target/${{ matrix.target }}/release/${{ matrix.exe }} profile --list
 
+      # dist lives at the workspace root ($GITHUB_WORKSPACE/dist) so upload-artifact, whose
+      # path is workspace-relative, finds it even though these run steps default into voltkit/.
       - name: stage
         shell: bash
         run: |
-          mkdir dist
-          cp "target/${{ matrix.target }}/release/${{ matrix.exe }}" "dist/${{ matrix.asset }}"
+          mkdir -p ../dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.exe }}" "../dist/${{ matrix.asset }}"
 
       - uses: actions/upload-artifact@v4
         with:

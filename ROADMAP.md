@@ -6,6 +6,12 @@ reads for Rust projects. This repository is registered there as tooling on 2026-
 <https://github.com/b1tninja-labs/voltkit>, with `publish = false`. These rows are the matrix
 that registration syncs.
 
+The service-id framing, the `+0x40` positive-response offset, the ReadDataByIdentifier codec,
+and the GMLAN `+0x400` addressing come from the sibling `udskit` crate (a path dependency), so
+`voltkit` and `gmdiag` read one UDS/GMLAN model instead of each hand-rolling it. The refactor is
+internal: the read-only scope, the scan set, and every obligation below are unchanged, and the
+named tests still pin them.
+
 Status:
 
 - `[ok]` the named test exists and passed on 2026-11-21.

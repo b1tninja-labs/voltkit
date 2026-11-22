@@ -285,16 +285,21 @@ pub fn profile_lines() -> Vec<String> {
 }
 
 /// Bytes after the positive service and the identifier.
+///
+/// The positive-response SID is the request SID raised by `0x40` (ISO 14229-1:2013, 7.2);
+/// `udskit::services::positive_response_sid` owns that offset, so `0x22` expects `0x62` and
+/// `0x1A` (GMLAN) expects `0x5A` without either value being written here.
 #[must_use]
 pub fn profile_bytes<'a>(row: &ScanRow, data: &'a [u8]) -> Option<&'a [u8]> {
+    let expected = udskit::services::positive_response_sid(row.service).ok()?;
     match row.service {
         0x22 if data.len() >= 3
-            && data[0] == 0x62
+            && data[0] == expected
             && u16::from_be_bytes([data[1], data[2]]) == row.identifier =>
         {
             Some(&data[3..])
         }
-        0x1A if data.len() >= 2 && data[0] == 0x5A && u16::from(data[1]) == row.identifier => {
+        0x1A if data.len() >= 2 && data[0] == expected && u16::from(data[1]) == row.identifier => {
             Some(&data[2..])
         }
         _ => None,
@@ -323,14 +328,17 @@ pub fn profile_note(row: &ScanRow, data: &[u8]) -> Option<String> {
     })
 }
 
+/// The ELM327 request text for a row: the request PDU `udskit::message` frames, in hex.
+///
+/// `$1A` carries the one-byte identifier, `$03` carries no data, and `$22` carries the
+/// 16-bit identifier big-endian, so the lines read `1A90`, `03`, and `22002F` as before.
 fn request_line(row: &ScanRow) -> String {
-    if row.service == 0x1A {
-        format!("1A{:02X}", row.identifier)
-    } else if row.service == 0x03 {
-        "03".to_string()
-    } else {
-        format!("22{:04X}", row.identifier)
-    }
+    let pdu = match row.service {
+        0x1A => udskit::message::encode_request(row.service, &[row.identifier as u8]),
+        0x03 => udskit::message::encode_request(row.service, &[]),
+        _ => udskit::message::encode_request(row.service, &row.identifier.to_be_bytes()),
+    };
+    pdu.iter().map(|byte| format!("{byte:02X}")).collect()
 }
 
 #[cfg(test)]
