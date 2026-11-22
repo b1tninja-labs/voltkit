@@ -129,7 +129,10 @@ jobs:
       - name: build
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        # No --locked: voltkit path-depends on sibling repos (udskit, vcxtoolkit, fakeobd) that CI
+        # checks out at their own moving `main`, so the committed Cargo.lock can't stay pinned to
+        # them. Resolve fresh, matching how the ci.yml check jobs build.
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: smoke
         shell: bash
