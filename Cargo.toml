@@ -1,10 +1,10 @@
 [package]
 name = "voltkit"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "ELM327-over-TCP read client for the Voltage Wi-Fi session"
+description = "Read-only GM Volt/Bolt diagnostic client: ELM327 (serial/Wi-Fi/BLE) and VCX-NANO, with a guided capture wizard"
 
 [features]
 # `vcx` is on by default: the VCX-NANO is a real adapter the owner holds, so an
