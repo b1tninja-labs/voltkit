@@ -37,6 +37,51 @@ filings lives in `vin`. Those pages are `vin:gm-vin-2016` through `vin:gm-vin-20
 primarysource. The 2016 filing has a Volt page and no Bolt page. The check-digit test vector
 is the worked example printed in those filings.
 
+## For an agent helping collect from the car
+
+You just cloned `voltkit` and are here to help an owner capture real reads from their vehicle and
+feed them back into the emulation (`fakeobd`) and the SPS/VIT1 request (`spskit`). Start here.
+
+**Build setup.** `voltkit` is a Cargo crate with a **path dependency on the sibling `udskit` crate
+(`../udskit`)** — the shared UDS/GMLAN model. A bare clone of `voltkit` alone will not build: clone
+`udskit` into the same parent directory (so `../udskit` resolves) first. Then `cargo build` and
+`cargo test` from this directory. CI checks both repos out as siblings for the same reason.
+
+**The other tools are separate processes, not linked.** Each is its own repository, cloned beside
+`voltkit` when you need it: `fakeobd` (the lab peer `voltkit lab` spawns), `obd-bridge` (the
+Windows BLE→TCP bench peer `voltkit bench` spawns), and `spskit` (turns a saved module read into a
+VIT1 programming-data body). voltkit dials a TCP address or opens a COM port; it never links them,
+opens a radio, speaks SPS HTTP, or speaks the VCX frame port.
+
+**Read before acting.** `AGENTS.md` (scope and the hard guardrails), `docs/tool-boundary.md` (who
+owns what in the stack), `docs/capture.md` (the capture sets and the clone format), and `ROADMAP.md`
+(the obligation matrix). For any protocol value, use the `primarysource` tools, not memory.
+
+**Collecting from the car (OBDLink MX over Bluetooth), engine off, adapter powered from the OBD
+port.** First confirm the host radio sees the adapter and which service it advertises — a read-only
+pre-flight that needs no vehicle motion:
+
+```bash
+obd-bridge scan --scan-timeout 10        # lists nearby BLE advertisers; the MX's FFF0 row is marked
+obd-bridge --name OBDLink                 # republishes the MX as ELM327-over-TCP on 127.0.0.1:35000
+cargo run -- profile 127.0.0.1:35000 --set hardware --set parts --set identity --clone --output ../volt-capture.profile
+```
+
+If the adapter instead enumerates as a Windows COM port (a Bluetooth-SPP pairing or a USB adapter),
+skip `obd-bridge` and dial it directly: `cargo run -- profile COM5 --set hardware ... --clone`.
+`voltkit wizard` walks the same jobs interactively and sends nothing until the answer is yes.
+
+**Guardrails (enforced, not just documented).** Read-only: only `01`, `03`, `1A`, and `22` reach
+the socket, and `$27` is refused before it is written. No vehicle writes, no J2534, no seed/key.
+A capture from a car holds the real VIN and part numbers: it is gitignored (`*.profile`,
+`profiles/`, `captures/`, `scans/`) — write it **outside** this repository, and never copy an owner
+identifier into the tree.
+
+**Where the capture goes.** The `--clone` file is a `fakeobd` profile (replay the car over the
+loopback/virtual adapters, so every downstream tool gets a realistic bench target) and the saved
+module read `spskit` turns into the VIT1 `getProgrammingData` body. Capture once; the emulation and
+the SPS clone both read it.
+
 ## Run
 
 ```bash
