@@ -42,7 +42,7 @@ struct App {
     pending_stdout: Option<String>,
     /// A VCX read the operator chose: run it LIVE in the console after the TUI exits,
     /// so the transmit and its output stream in real time instead of freezing the UI.
-    pending_read: Option<(u32, stage::Backend)>,
+    pending_read: Option<(u32, stage::Backend, stage::Action)>,
     quit: bool,
 }
 
@@ -174,10 +174,10 @@ impl App {
             return;
         };
         match stage.on_key(code) {
-            Some(stage::StageEvent::Run(backend)) => {
-                // Leave the TUI and run the read LIVE in the console (see `run()`), so
-                // the transmit streams in real time instead of freezing a captured UI.
-                self.pending_read = Some((stage.port, backend));
+            Some(stage::StageEvent::Run(backend, action)) => {
+                // Leave the TUI and run it LIVE in the console (see `run()`), so the
+                // transmit streams in real time instead of freezing a captured UI.
+                self.pending_read = Some((stage.port, backend, action));
                 self.quit = true;
             }
             Some(stage::StageEvent::Back) => self.screen = Screen::Detect,
@@ -404,10 +404,12 @@ fn unix_secs() -> u64 {
 ///
 /// Both backends run the SAME engine — `gmdiag vcx-read` — so the saved-read is identical;
 /// only the transport differs. `Native` uses the native VCX serial path; `Vendor` passes
-/// `--dll <VCXPT32.dll>`, driving the VXDIAG pass-through DLL through `vcikit-j2534`. Both
-/// are read-only ($3E/$1A) and write the VIT1 to a `vit1-*.saved-read` file.
+/// `--dll <VCXPT32.dll>`, driving the VXDIAG pass-through DLL through `vcikit-j2534`. The
+/// [`Action`](stage::Action) picks what to run: a [`Ping`](stage::Action::Ping) passes
+/// `--ping` (TesterPresent $3E only, no VIT1); a [`Read`](stage::Action::Read) adds `--out`
+/// to write the VIT1 to a `vit1-*.saved-read` file. Both are read-only ($3E/$1A).
 #[cfg(windows)]
-fn run_read_live(port: u32, backend: stage::Backend) {
+fn run_read_live(port: u32, backend: stage::Backend, action: stage::Action) {
     let exe = tool_path("gmdiag.exe");
     let mut args = vec![
         "vcx-read".to_string(),
@@ -418,15 +420,23 @@ fn run_read_live(port: u32, backend: stage::Backend) {
         args.push("--dll".to_string());
         args.push(vendor_dll_path().display().to_string());
     }
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    args.push("--out".to_string());
-    args.push(format!("vit1-{secs}.saved-read"));
+    match action {
+        // Ping: TesterPresent $3E probe only — no identity read, so no VIT1 to write.
+        stage::Action::Ping => args.push("--ping".to_string()),
+        // Full read: write the VIT1 saved-read next to gmdiag.
+        stage::Action::Read => {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            args.push("--out".to_string());
+            args.push(format!("vit1-{secs}.saved-read"));
+        }
+    }
 
     println!();
     println!(
-        "=== Phase 2: live VCX read [{}] - READ-ONLY $3E/$1A, transmitting ===",
+        "=== Phase 2: live VCX {} [{}] - READ-ONLY $3E/$1A, transmitting ===",
+        action.label(),
         backend.label()
     );
     println!();
@@ -441,8 +451,12 @@ fn run_read_live(port: u32, backend: stage::Backend) {
     match command.status() {
         Ok(status) => {
             println!();
+            let artifacts = match action {
+                stage::Action::Ping => "the session log is",
+                stage::Action::Read => "the VIT1 saved-read and session log are",
+            };
             println!(
-                "=== read finished (exit {}) - the VIT1 saved-read and session log are in the voltkit folder ===",
+                "=== finished (exit {}) - {artifacts} in the voltkit folder ===",
                 status.code().unwrap_or(-1)
             );
         }
@@ -460,7 +474,7 @@ fn run_read_live(port: u32, backend: stage::Backend) {
 }
 
 #[cfg(not(windows))]
-fn run_read_live(_port: u32, _backend: stage::Backend) {
+fn run_read_live(_port: u32, _backend: stage::Backend, _action: stage::Action) {
     eprintln!("the live VCX read runs on Windows only");
 }
 
@@ -498,8 +512,8 @@ pub fn run() -> Result<(), String> {
     outcome?;
     // The TUI has exited and the terminal is restored; run a chosen VCX read live here so
     // its transmit streams to the console instead of being captured behind a frozen UI.
-    if let Some((port, backend)) = app.pending_read.take() {
-        run_read_live(port, backend);
+    if let Some((port, backend, action)) = app.pending_read.take() {
+        run_read_live(port, backend, action);
     }
     Ok(())
 }

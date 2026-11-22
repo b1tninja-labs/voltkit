@@ -33,10 +33,32 @@ impl Backend {
     }
 }
 
+/// What to run on the chosen backend. Both are read-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// TesterPresent ($3E) probe only — brings the ISO 15765 channel up and
+    /// checks for a positive $7E, without reading any identity. No VIT1 is written.
+    Ping,
+    /// The full identity read: $3E TesterPresent, then the $1A identity DIDs,
+    /// writing the VIT1 saved-read.
+    Read,
+}
+
+impl Action {
+    /// The short name shown in the result header.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Action::Ping => "ping ($3E TesterPresent probe)",
+            Action::Read => "identity read ($3E + $1A)",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum StageEvent {
-    /// Run the live read with the chosen backend.
-    Run(Backend),
+    /// Run the chosen action on the chosen backend.
+    Run(Backend, Action),
     /// Back to the adapter picker.
     Back,
     /// Finished: return to the job menu.
@@ -48,8 +70,8 @@ pub struct Stage {
     detail: String,
     /// The COM port the VCX answered on.
     pub port: u32,
-    /// The backend that produced [`result`](Self::result), for the header.
-    pub ran: Option<Backend>,
+    /// The backend and action that produced [`result`](Self::result), for the header.
+    pub ran: Option<(Backend, Action)>,
     /// `Ok(output)` from the read, or `Err(message)`. `None` until it is run.
     pub result: Option<Result<String, String>>,
 }
@@ -73,6 +95,16 @@ impl Stage {
         self.result.is_some()
     }
 
+    /// The "Backend / action" header line shown above the run output.
+    fn ran_header(&self) -> String {
+        match self.ran {
+            Some((backend, action)) => {
+                format!("Backend: {}   Action: {}", backend.label(), action.label())
+            }
+            None => String::new(),
+        }
+    }
+
     pub fn on_key(&self, code: KeyCode) -> Option<StageEvent> {
         if self.done() {
             return match code {
@@ -82,9 +114,14 @@ impl Stage {
             };
         }
         match code {
-            // Native is the default (Enter / N); the vendor DLL is the backup (V).
-            KeyCode::Enter | KeyCode::Char('n' | 'N') => Some(StageEvent::Run(Backend::Native)),
-            KeyCode::Char('v' | 'V') => Some(StageEvent::Run(Backend::Vendor)),
+            // Adapter is already chosen in the detect screen; here the operator
+            // picks what to run. Native is first-class; the vendor DLL is the backup.
+            KeyCode::Enter | KeyCode::Char('n' | 'N') => {
+                Some(StageEvent::Run(Backend::Native, Action::Read))
+            }
+            KeyCode::Char('p' | 'P') => Some(StageEvent::Run(Backend::Native, Action::Ping)),
+            KeyCode::Char('v' | 'V') => Some(StageEvent::Run(Backend::Vendor, Action::Read)),
+            KeyCode::Char('b' | 'B') => Some(StageEvent::Run(Backend::Vendor, Action::Ping)),
             KeyCode::Esc => Some(StageEvent::Back),
             _ => None,
         }
@@ -107,21 +144,19 @@ impl Stage {
         frame.render_widget(block, body);
         let text = match &self.result {
             None => format!(
-                "{}\n{}\n\nChoose the backend for the live read (read-only: $3E TesterPresent, \
-                 then the $1A identity DIDs):\n\n  [N] native VCX  — our own read over the serial \
-                 link (gmdiag vcx-read)\n  [V] vendor DLL  — VXDIAG VCXPT32.dll via our J2534 \
-                 loader (the backup)\n\nNative is first-class; the vendor path is there so the \
-                 read works no matter what.",
+                "{}\n{}\n\nThe adapter is already selected. Choose what to run (all read-only: \
+                 $3E TesterPresent, and for a full read the $1A identity DIDs):\n\n  native VCX  \
+                 — our own read over the serial link (gmdiag vcx-read)\n    [N] identity read \
+                 ($3E, then $1A — writes the VIT1)\n    [P] ping only ($3E TesterPresent probe, \
+                 no VIT1)\n\n  vendor DLL  — VXDIAG VCXPT32.dll via our J2534 loader (the \
+                 backup)\n    [V] identity read ($3E, then $1A — writes the VIT1)\n    [B] ping \
+                 only ($3E TesterPresent probe, no VIT1)\n\nNative is first-class; the vendor \
+                 path is there so the read works no matter what. A ping proves the channel and \
+                 the ECU answer before a full read.",
                 self.label, self.detail
             ),
-            Some(Ok(output)) => format!(
-                "Backend: {}\n\n{output}",
-                self.ran.map_or("", Backend::label)
-            ),
-            Some(Err(err)) => format!(
-                "Backend: {}\n\nCould not run the read: {err}",
-                self.ran.map_or("", Backend::label)
-            ),
+            Some(Ok(output)) => format!("{}\n\n{output}", self.ran_header()),
+            Some(Err(err)) => format!("{}\n\nCould not run it: {err}", self.ran_header()),
         };
         let style = match &self.result {
             Some(Err(_)) => Style::new().fg(Color::Red),
@@ -134,7 +169,7 @@ impl Stage {
         let help = if self.done() {
             "Enter returns to the menu. Esc re-picks the adapter."
         } else {
-            "[N] native read   [V] vendor-DLL read   Esc back"
+            "[N] native read  [P] native ping  [V] vendor read  [B] vendor ping  Esc back"
         };
         frame.render_widget(Paragraph::new(help).style(Style::new().dim()), footer);
     }
@@ -154,20 +189,31 @@ mod tests {
     }
 
     #[test]
-    fn n_runs_native_v_runs_vendor_and_esc_goes_back() {
+    fn keys_pick_backend_and_action_and_esc_goes_back() {
         let stage = Stage::new(&vcx());
         assert_eq!(stage.port, 4);
+        // Enter and N both run the native full read (the default).
         assert_eq!(
             stage.on_key(KeyCode::Enter),
-            Some(StageEvent::Run(Backend::Native))
+            Some(StageEvent::Run(Backend::Native, Action::Read))
         );
         assert_eq!(
             stage.on_key(KeyCode::Char('n')),
-            Some(StageEvent::Run(Backend::Native))
+            Some(StageEvent::Run(Backend::Native, Action::Read))
         );
+        // P is the native TesterPresent ping.
+        assert_eq!(
+            stage.on_key(KeyCode::Char('p')),
+            Some(StageEvent::Run(Backend::Native, Action::Ping))
+        );
+        // V / B are the vendor read / ping.
         assert_eq!(
             stage.on_key(KeyCode::Char('v')),
-            Some(StageEvent::Run(Backend::Vendor))
+            Some(StageEvent::Run(Backend::Vendor, Action::Read))
+        );
+        assert_eq!(
+            stage.on_key(KeyCode::Char('b')),
+            Some(StageEvent::Run(Backend::Vendor, Action::Ping))
         );
         assert_eq!(stage.on_key(KeyCode::Esc), Some(StageEvent::Back));
     }
@@ -175,15 +221,17 @@ mod tests {
     #[test]
     fn once_run_enter_returns_and_esc_repicks() {
         let mut stage = Stage::new(&vcx());
-        stage.ran = Some(Backend::Native);
+        stage.ran = Some((Backend::Native, Action::Ping));
         stage.result = Some(Ok("TesterPresent: positive $7E".to_string()));
         assert_eq!(stage.on_key(KeyCode::Enter), Some(StageEvent::Done));
         assert_eq!(stage.on_key(KeyCode::Esc), Some(StageEvent::Back));
     }
 
     #[test]
-    fn backend_labels_name_the_source() {
+    fn backend_and_action_labels_name_the_source() {
         assert!(Backend::Native.label().contains("native"));
         assert!(Backend::Vendor.label().contains("VCXPT32"));
+        assert!(Action::Ping.label().contains("TesterPresent"));
+        assert!(Action::Read.label().contains("$1A"));
     }
 }
