@@ -31,14 +31,30 @@ jobs:
         with:
           path: voltkit
 
-      # voltkit depends on the sibling udskit crate by the path `../udskit`, the same layout
-      # the D:\code workspace uses locally. Check out udskit's default branch beside voltkit so
-      # the path dependency resolves. Both repos are public, so the default token is enough.
+      # voltkit has path dependencies on sibling crates, the same `../sibling` layout the D:\code
+      # workspace uses locally. Cargo resolves every declared path dependency's manifest even when
+      # the owning feature is off and even on a platform that will not compile it, so all three
+      # siblings are checked out beside voltkit on both OSes. What stays lean is the *compiled*
+      # graph: the Linux default build links only udskit (vcxtoolkit is `cfg(windows)`, fakeobd is
+      # behind the off-by-default `lab` feature); the Windows default build also links vcxtoolkit.
+      # All repos are public, so the default token is enough.
       - name: check out the udskit path dependency
         uses: actions/checkout@v4
         with:
           repository: b1tninja-labs/udskit
           path: udskit
+
+      - name: check out the vcxtoolkit path dependency (VCX-NANO, Windows-gated)
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/vcxtoolkit
+          path: vcxtoolkit
+
+      - name: check out the fakeobd path dependency (lab feature, off by default)
+        uses: actions/checkout@v4
+        with:
+          repository: b1tninja-labs/fakeobd
+          path: fakeobd
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -57,3 +73,12 @@ jobs:
 
       - name: test
         run: cargo test
+
+      - name: doc
+        run: cargo doc --no-deps
+
+      # Exercise the optional lab feature (links the fakeobd library) on one OS, so the
+      # in-process bench stays building. The default jobs above do not compile fakeobd.
+      - name: lab feature
+        if: runner.os == 'Linux'
+        run: cargo clippy --features lab --all-targets -- -D warnings

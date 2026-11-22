@@ -165,6 +165,44 @@ impl Drop for LabPeer {
     }
 }
 
+/// An in-process lab peer, linked from the `fakeobd` library.
+///
+/// With the `lab` feature, `voltkit lab` serves the vehicle itself on
+/// [`ADDRESS`] instead of spawning the `fakeobd` binary, so no peer has to be on
+/// PATH. The served adapter is a read-only ELM327 bench: fakeobd's own policy
+/// admits the read set and refuses `$27`, and voltkit's session refuses it too
+/// before a byte is written.
+#[cfg(feature = "lab")]
+pub mod embed {
+    use std::io;
+
+    use crate::{Error, Session};
+
+    /// Bind [`super::ADDRESS`], serve a fakeobd bench on a background thread, and
+    /// dial it.
+    ///
+    /// The listener is served by a detached thread for the life of the process.
+    /// The returned [`Session`] is one client of that in-process bench.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the socket cannot be bound or dialed.
+    pub fn start() -> Result<Session, Error> {
+        let listener = fakeobd::bind(super::ADDRESS, false).map_err(Error::Io)?;
+        let sim = fakeobd::Sim::new(elm::Flavor::Elm327);
+        std::thread::spawn(move || {
+            let _ = fakeobd::serve(listener, sim, fakeobd::ServeOptions::default());
+        });
+        Session::connect(super::ADDRESS).map_err(|err| match err {
+            Error::Io(e) => Error::Io(io::Error::other(format!(
+                "embedded lab peer did not accept {}: {e}",
+                super::ADDRESS
+            ))),
+            other => other,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;

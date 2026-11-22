@@ -327,6 +327,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
+name = "elm"
+version = "0.1.0"
+dependencies = [
+ "isotp",
+ "obd-policy",
+ "vehicle",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -349,6 +358,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "fakeobd"
+version = "0.1.0"
+dependencies = [
+ "elm",
+ "obd-conform",
+ "obd-policy",
+ "vehicle",
 ]
 
 [[package]]
@@ -519,6 +538,10 @@ dependencies = [
  "core-foundation-sys",
  "mach2",
 ]
+
+[[package]]
+name = "isotp"
+version = "0.1.0"
 
 [[package]]
 name = "itertools"
@@ -784,6 +807,14 @@ checksum = "cabcc654086861f9e1bc5115258de62ef92c79b20f4615a1b0cc57c4e82027d4"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "obd-conform"
+version = "0.1.0"
+
+[[package]]
+name = "obd-policy"
+version = "0.1.0"
 
 [[package]]
 name = "object"
@@ -1631,6 +1662,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcxtoolkit"
+version = "0.1.0"
+dependencies = [
+ "vcxtoolkit-open",
+]
+
+[[package]]
+name = "vcxtoolkit-open"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "vehicle"
+version = "0.1.0"
+dependencies = [
+ "isotp",
+ "obd-policy",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1641,9 +1694,12 @@ name = "voltkit"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "elm",
+ "fakeobd",
  "ratatui",
  "serialport",
  "udskit",
+ "vcxtoolkit",
 ]
 
 [[package]]

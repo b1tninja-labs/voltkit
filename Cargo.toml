@@ -6,9 +6,29 @@ license = "MIT OR Apache-2.0"
 publish = false
 description = "ELM327-over-TCP read client for the Voltage Wi-Fi session"
 
+[features]
+# `vcx` is on by default: the VCX-NANO is a real adapter the owner holds, so an
+# ordinary build detects it. The dependency itself is Windows-only (below), and
+# every line that touches it is `#[cfg(all(windows, feature = "vcx"))]`, so the
+# default build on Linux carries nothing extra and a Windows build without the
+# feature falls back to a "built without VCX support" message.
+default = ["vcx"]
+vcx = ["dep:vcxtoolkit"]
+# `lab` is off by default: it links the `fakeobd` library so `voltkit lab` can
+# serve an in-process vehicle without the `fakeobd` binary on PATH. A real build
+# does not want the emulator, so it stays out unless asked for. `elm` is the
+# fakeobd sibling that owns the adapter `Flavor` the bench is built from; it is
+# pulled only to name that one type, and only with this feature.
+lab = ["dep:fakeobd", "dep:elm"]
+
 [target.'cfg(windows)'.dependencies]
-# Opens the COM port the operator names for `voltkit profile`. The crate forbids unsafe.
+# Opens the COM port the operator names for `voltkit profile`, and enumerates the
+# ports (with friendly names) the wizard offers. The crate forbids unsafe.
 serialport = "4.7"
+# The VCX-NANO doctor: `open_usb` + a GetInfo read so the wizard can identify a
+# VXDIAG dongle by model and firmware. Windows-only and optional; the live
+# vehicle read (`collect`) stays gated inside vcxtoolkit and is never called here.
+vcxtoolkit = { path = "../vcxtoolkit", version = "0.1.0", optional = true }
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -23,6 +43,12 @@ crossterm = "0.29"
 ratatui = { version = "0.30.2", features = ["crossterm"] }
 # The shared UDS (ISO 14229-1) / GMLAN model. voltkit reads one catalog for the service-id
 # framing, the +0x40 positive-response offset, the ReadDataByIdentifier codec, and the GMLAN
-# +0x400 addressing, instead of hand-rolling them beside gmdiag. Path dependency on the sibling
-# repo; no bus, no key material, no write service crosses this boundary.
-udskit = { path = "../udskit" }
+# +0x400 addressing, instead of hand-rolling them beside gmdiag. voltkit uses only
+# services/message/did/gmlan, none of udskit::gm, so default features are off. Path dependency
+# on the sibling repo; no bus, no key material, no write service crosses this boundary.
+udskit = { path = "../udskit", default-features = false }
+# The `lab` feature only: the in-process emulator for `voltkit lab`. Optional and off by
+# default. No write service crosses this boundary; fakeobd's own policy is read-only.
+fakeobd = { path = "../fakeobd/crates/fakeobd", optional = true }
+# The `lab` feature only: names the ELM327 adapter flavor the in-process bench is built from.
+elm = { path = "../fakeobd/crates/elm", optional = true }
