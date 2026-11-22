@@ -32,17 +32,16 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
+    // No command runs the wizard, so double-clicking voltkit.exe opens it with no
+    // terminal and no typed command.
     let Some(first) = args.next() else {
-        return Err(USAGE.to_string());
+        return run_wizard();
     };
     if first == "wizard" {
         if args.next().is_some() {
             return Err(USAGE.to_string());
         }
-        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-            return tui::run();
-        }
-        return voltkit::wizard::run(|plan| run_capture(&profile_args(plan)));
+        return run_wizard();
     }
     if first == "gauges" {
         return gauges(args);
@@ -67,6 +66,16 @@ fn run() -> Result<(), String> {
     }
     let session = Session::connect(&first).map_err(|e| e.to_string())?;
     print_session(&first, session)
+}
+
+/// Run the wizard: the full-screen TUI on a terminal, or the line-prompt flow when
+/// piped. This is the default when `voltkit` is launched with no command.
+fn run_wizard() -> Result<(), String> {
+    if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        tui::run()
+    } else {
+        voltkit::wizard::run(|plan| run_capture(&profile_args(plan)))
+    }
 }
 
 #[cfg(not(feature = "lab"))]
