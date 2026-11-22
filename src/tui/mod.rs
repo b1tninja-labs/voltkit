@@ -409,6 +409,13 @@ fn run_read(port: u32, backend: stage::Backend) -> Result<String, String> {
         args.push("--dll".to_string());
         args.push(vendor_dll_path().display().to_string());
     }
+    // Write the VIT1 saved-read to a timestamped file (in gmdiag's cwd, set below), so a
+    // successful wizard read leaves the clone artifact beside the tool, not just on screen.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    args.push("--out".to_string());
+    args.push(format!("vit1-{secs}.saved-read"));
     let mut command = std::process::Command::new(&exe);
     command.args(&args);
     // Run from gmdiag's own directory, so its session log lands beside it (the vendor
