@@ -1,7 +1,11 @@
-//! Phase 2: identify the VCX-NANO and stage the programming-data collect.
+//! Phase 2: identify the VCX-NANO and run the live programming-data read.
 //!
-//! This screen runs the SAFE GetInfo doctor and writes a gated skeleton of the
-//! SPS read. It sends no vehicle read; the live SPS collect stays gated.
+//! The operator chooses the backend: the **native** VCX read (our own
+//! implementation, `gmdiag vcx-read` over the USB serial link) or the **vendor**
+//! VXDIAG J2534 DLL (`VCXPT32.dll`, driven through our `vcikit-j2534` loader) as the
+//! backup. Both do the same read-only job ($3E TesterPresent, then the $1A identity
+//! DIDs); nothing here is gated or a skeleton. The native path is first; the vendor
+//! path exists so the read works no matter what.
 
 use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -9,10 +13,30 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 use voltkit::Device;
 
+/// Which backend runs the live read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    /// Our own native VCX read (`gmdiag vcx-read` over the serial link).
+    Native,
+    /// The vendor VXDIAG J2534 DLL (`VCXPT32.dll`) via our `vcikit-j2534` loader.
+    Vendor,
+}
+
+impl Backend {
+    /// The short name shown in the result header.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Backend::Native => "native VCX (our read)",
+            Backend::Vendor => "vendor VXDIAG DLL (VCXPT32.dll)",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum StageEvent {
-    /// Run the doctor and write the skeleton.
-    Run,
+    /// Run the live read with the chosen backend.
+    Run(Backend),
     /// Back to the adapter picker.
     Back,
     /// Finished: return to the job menu.
@@ -24,7 +48,9 @@ pub struct Stage {
     detail: String,
     /// The COM port the VCX answered on.
     pub port: u32,
-    /// `Ok(path)` written, or `Err(message)`. `None` until it is run.
+    /// The backend that produced [`result`](Self::result), for the header.
+    pub ran: Option<Backend>,
+    /// `Ok(output)` from the read, or `Err(message)`. `None` until it is run.
     pub result: Option<Result<String, String>>,
 }
 
@@ -38,6 +64,7 @@ impl Stage {
             label: device.label.clone(),
             detail: device.detail.clone(),
             port,
+            ran: None,
             result: None,
         }
     }
@@ -55,8 +82,10 @@ impl Stage {
             };
         }
         match code {
-            KeyCode::Enter | KeyCode::Char('y' | 'Y') => Some(StageEvent::Run),
-            KeyCode::Esc | KeyCode::Char('n' | 'N') => Some(StageEvent::Back),
+            // Native is the default (Enter / N); the vendor DLL is the backup (V).
+            KeyCode::Enter | KeyCode::Char('n' | 'N') => Some(StageEvent::Run(Backend::Native)),
+            KeyCode::Char('v' | 'V') => Some(StageEvent::Run(Backend::Vendor)),
+            KeyCode::Esc => Some(StageEvent::Back),
             _ => None,
         }
     }
@@ -69,25 +98,30 @@ impl Stage {
         ])
         .areas(area);
         frame.render_widget(
-            Paragraph::new("Phase 2 — programming data (VCX)")
+            Paragraph::new("Phase 2 — live programming-data read (VCX)")
                 .style(Style::new().add_modifier(Modifier::BOLD)),
             title,
         );
-        let block = Block::bordered().title("Stage the SPS collect");
+        let block = Block::bordered().title("Read the VCX identity ($3E / $1A, read-only)");
         let inner = block.inner(body);
         frame.render_widget(block, body);
         let text = match &self.result {
             None => format!(
-                "{}\n{}\n\nThis runs the GetInfo doctor and writes a gated skeleton of the \
-                 programming-data read. It sends no vehicle read — the live SPS collect stays \
-                 gated for owner sign-off.",
+                "{}\n{}\n\nChoose the backend for the live read (read-only: $3E TesterPresent, \
+                 then the $1A identity DIDs):\n\n  [N] native VCX  — our own read over the serial \
+                 link (gmdiag vcx-read)\n  [V] vendor DLL  — VXDIAG VCXPT32.dll via our J2534 \
+                 loader (the backup)\n\nNative is first-class; the vendor path is there so the \
+                 read works no matter what.",
                 self.label, self.detail
             ),
-            Some(Ok(path)) => format!(
-                "Staged the gated skeleton.\n\nWrote {path}\n\nNo vehicle read was sent. Fill the \
-                 null values once the live SPS collect is ungated, then hand to spskit."
+            Some(Ok(output)) => format!(
+                "Backend: {}\n\n{output}",
+                self.ran.map_or("", Backend::label)
             ),
-            Some(Err(err)) => format!("Could not stage: {err}"),
+            Some(Err(err)) => format!(
+                "Backend: {}\n\nCould not run the read: {err}",
+                self.ran.map_or("", Backend::label)
+            ),
         };
         let style = match &self.result {
             Some(Err(_)) => Style::new().fg(Color::Red),
@@ -100,7 +134,7 @@ impl Stage {
         let help = if self.done() {
             "Enter returns to the menu. Esc re-picks the adapter."
         } else {
-            "Enter stages the skeleton (no vehicle read). Esc back."
+            "[N] native read   [V] vendor-DLL read   Esc back"
         };
         frame.render_widget(Paragraph::new(help).style(Style::new().dim()), footer);
     }
@@ -120,13 +154,36 @@ mod tests {
     }
 
     #[test]
-    fn enter_runs_then_returns_and_esc_goes_back() {
-        let mut stage = Stage::new(&vcx());
+    fn n_runs_native_v_runs_vendor_and_esc_goes_back() {
+        let stage = Stage::new(&vcx());
         assert_eq!(stage.port, 4);
-        assert_eq!(stage.on_key(KeyCode::Enter), Some(StageEvent::Run));
+        assert_eq!(
+            stage.on_key(KeyCode::Enter),
+            Some(StageEvent::Run(Backend::Native))
+        );
+        assert_eq!(
+            stage.on_key(KeyCode::Char('n')),
+            Some(StageEvent::Run(Backend::Native))
+        );
+        assert_eq!(
+            stage.on_key(KeyCode::Char('v')),
+            Some(StageEvent::Run(Backend::Vendor))
+        );
         assert_eq!(stage.on_key(KeyCode::Esc), Some(StageEvent::Back));
-        stage.result = Some(Ok("C:/captures/sps-collect-x.json".to_string()));
+    }
+
+    #[test]
+    fn once_run_enter_returns_and_esc_repicks() {
+        let mut stage = Stage::new(&vcx());
+        stage.ran = Some(Backend::Native);
+        stage.result = Some(Ok("TesterPresent: positive $7E".to_string()));
         assert_eq!(stage.on_key(KeyCode::Enter), Some(StageEvent::Done));
         assert_eq!(stage.on_key(KeyCode::Esc), Some(StageEvent::Back));
+    }
+
+    #[test]
+    fn backend_labels_name_the_source() {
+        assert!(Backend::Native.label().contains("native"));
+        assert!(Backend::Vendor.label().contains("VCXPT32"));
     }
 }

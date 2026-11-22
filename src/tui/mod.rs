@@ -170,11 +170,9 @@ impl App {
             return;
         };
         match stage.on_key(code) {
-            Some(stage::StageEvent::Run) => {
-                let dir = voltkit::detect::default_capture_dir();
-                let result =
-                    run_stage(stage.port, &dir, unix_secs()).map(|path| path.display().to_string());
-                stage.result = Some(result);
+            Some(stage::StageEvent::Run(backend)) => {
+                stage.ran = Some(backend);
+                stage.result = Some(run_read(stage.port, backend));
             }
             Some(stage::StageEvent::Back) => self.screen = Screen::Detect,
             Some(stage::StageEvent::Done) => {
@@ -393,19 +391,71 @@ fn unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Run the Phase 2 VCX doctor and write the gated SPS skeleton.
+/// Run the Phase 2 live read with the chosen backend and return the tool's output.
 ///
-/// The real staging is Windows + `vcx` only (where a VCX device can be detected).
-/// Off that build the call is never reachable from a real device, but it still
-/// has to compile, so it returns a clear message.
-#[cfg(all(windows, feature = "vcx"))]
-fn run_stage(port: u32, dir: &std::path::Path, secs: u64) -> Result<std::path::PathBuf, String> {
-    voltkit::stage::stage(port, dir, secs)
+/// `Native` spawns our own `gmdiag vcx-read`; `Vendor` spawns the VXDIAG-DLL reader
+/// (`vcx-vendor-read`, our `vcikit-j2534` loader driving `VCXPT32.dll`). Both are
+/// read-only ($3E/$1A). The read touches hardware, so it is Windows-only; off that
+/// build it returns a clear message instead.
+#[cfg(windows)]
+fn run_read(port: u32, backend: stage::Backend) -> Result<String, String> {
+    let (exe, args) = match backend {
+        stage::Backend::Native => (
+            tool_path("gmdiag.exe"),
+            vec![
+                "vcx-read".to_string(),
+                "--port".to_string(),
+                port.to_string(),
+            ],
+        ),
+        stage::Backend::Vendor => (
+            vendor_tool_path("vcx-vendor-read.exe"),
+            vec!["--port".to_string(), port.to_string()],
+        ),
+    };
+    let output = std::process::Command::new(&exe)
+        .args(&args)
+        .output()
+        .map_err(|error| {
+            format!(
+                "could not launch {} ({error}). It should sit next to voltkit.exe.",
+                exe.display()
+            )
+        })?;
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.trim().is_empty() {
+        text.push('\n');
+        text.push_str(&stderr);
+    }
+    Ok(text)
 }
 
-#[cfg(not(all(windows, feature = "vcx")))]
-fn run_stage(_port: u32, _dir: &std::path::Path, _secs: u64) -> Result<std::path::PathBuf, String> {
-    Err("VCX staging needs the vcx feature on Windows".to_string())
+#[cfg(not(windows))]
+fn run_read(_port: u32, _backend: stage::Backend) -> Result<String, String> {
+    Err("the live VCX read runs on Windows only".to_string())
+}
+
+/// Resolve a sibling tool next to this executable, falling back to the bare name
+/// (so it is found on `PATH` in a dev build).
+#[cfg(windows)]
+fn tool_path(name: &str) -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(name)))
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from(name))
+}
+
+/// Resolve the vendor reader, which lives beside the vendor DLLs in `vxdiag-j2534\`
+/// (so `VCXPT32.dll`'s sibling DLLs resolve), falling back to a sibling of this exe.
+#[cfg(windows)]
+fn vendor_tool_path(name: &str) -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("vxdiag-j2534").join(name)))
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| tool_path(name))
 }
 
 pub fn run() -> Result<(), String> {
